@@ -4,7 +4,7 @@ kind: Component
 metadata:
   id: mdm/product                    # ⚠️ Fork 件必须与标准件完全一致（§3.4.1）
   name: 产品/物料主数据
-  version: 1.0.0                     # 精确版本，不接受 ^ / ~ / latest
+  version: 1.0.1                     # 精确版本，不接受 ^ / ~ / latest
   description: SKU、分类、计量单位换算、批次/序列号追踪策略、标准成本
   license: Apache-2.0                # 平台支持这一格（manifest.Metadata.License），填上
   vendor: brickKit                   # 同上，可选但填了对交付文档有用
