@@ -4,7 +4,11 @@ kind: Component
 metadata:
   id: mdm/product                    # ⚠️ Fork 件必须与标准件完全一致（§3.4.1）
   name: 产品/物料主数据
-  version: 1.0.3                     # 精确版本，不接受 ^ / ~ / latest
+  version: 1.0.4                     # 精确版本，不接受 ^ / ~ / latest
+    # v1.0.4：新增 make seed/seed-clean（总纲 SOP-W-7 的种子数据归属样板）
+    # ——scripts/seed.sh 灌 5 个示例产品（覆盖 NONE/BATCH/SERIAL 三种
+    # TrackingType + ACTIVE/DISABLED 两种状态）。纯本地开发工具，不进
+    # 镜像、无行为/契约变更。
                                       # v1.0.2：纯重新构建，deployment.image 之前一直
                                       # 停在 1.0.0，v1.0.1 的源码改动从没真的打进镜像
                                       # 过（阶段三 Task 4 核对 brickkit up 真机时发现）
@@ -57,7 +61,7 @@ configSchema:
 
 deployment:
   type: container
-  image: brickenterprise/mdm-product:1.0.3
+  image: brickenterprise/mdm-product:1.0.4
   port: 8082                         # 端口册 registry/ports.tsv
   extraPorts:
     - { name: grpc, port: 9092 }     # → MDM_PRODUCT_GRPC_ENDPOINT（值仍以 http:// 开头）
