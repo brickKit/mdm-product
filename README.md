@@ -17,13 +17,50 @@ SKU、分类、计量单位换算、批次/序列号追踪策略、标准成本�
 就能单独跑起来——它不对 IAM 建依赖边，JWT 走本地验签（决策 87）。
 
 ## 怎么起来
-（Task 6 实现完成后补：装配路径 + 单独跑的完整命令）
+
+```bash
+# 装配仓库根目录
+make up                        # 起 PostgreSQL/NATS 等默认基础资源
+cd components/mdm/product
+go build -o build/migrate ./backend/cmd/migrate
+PG_SCHEMA=mdm_product DATABASE_HOST=localhost DATABASE_PORT=5432 \
+  DATABASE_USER=postgres DATABASE_PASSWORD=<.env 里的 POSTGRES_PASSWORD> DATABASE_NAME=brickkit_db \
+  ./build/migrate up
+go run ./backend/cmd/server     # 单独跑：besdk.RunStandalone 读 component.yaml 的端口
+```
+
+或者用平台：`brickkit up`（装配仓库根目录，`components/mdm/product` 登记为 submodule 且在 `brickkit.yaml` 里之后）。
 
 ## 怎么用
-（Task 6 后补：一条 curl + 一条 grpcurl）
+
+```bash
+# 建一个产品（gRPC）——sku 留空则按 "P" + 6 位自增数字生成
+grpcurl -plaintext -d '{
+  "idempotency_key": "prod-demo-1",
+  "name": "示例产品",
+  "category_id": "1",
+  "base_uom_id": "EA",
+  "tracking_type": "TRACKING_TYPE_NONE",
+  "standard_cost": "10.00"
+}' localhost:9092 mdm.product.v1.ProductService/Create
+
+# 查一个产品（REST，人类操作）
+curl -H 'Authorization: Bearer <应用 token>' 'http://localhost:8082/mdm/product/products/1'
+
+# 换算数量（前端下单页试算用，DryRun 纯函数不落库）
+curl -X POST -H 'Authorization: Bearer <应用 token>' -H 'Content-Type: application/json' \
+  -d '{"product_id":"1","qty":"2.3","from_uom_id":"EA","to_uom_id":"BOX"}' \
+  http://localhost:8082/mdm/product/products/convert-quantity
+```
 
 ## 配置项
-（Task 5 写完 component.yaml 后补，平台注入的保留变量单列一段）
+
+| 配置键 | 默认值 | 说明 |
+|---|---|---|
+| `pgSchema` | `mdm_product` | 本组件的 PG schema |
+| `otelBaseUrl` | `""` | 空 = Blackhole Exporter，零成本 |
+| `iamJwksUrl` | `""` | JWT 本地验签的公钥来源，指向 `infra-iam-casdoor` |
+| `authzBundleUrl` | `""` | 权限判定的 bundle 轮询地址，指向 `infra-authz` |
 
 ## 参考实现
 | 项目 | 看的模块 | 借鉴了什么 | 许可证（已复核） | 用法 |
