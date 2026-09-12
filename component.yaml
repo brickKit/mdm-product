@@ -4,7 +4,13 @@ kind: Component
 metadata:
   id: mdm/product                    # ⚠️ Fork 件必须与标准件完全一致（§3.4.1）
   name: 产品/物料主数据
-  version: 1.0.4                     # 精确版本，不接受 ^ / ~ / latest
+  version: 1.0.5                     # 精确版本，不接受 ^ / ~ / latest
+    # v1.0.5：make seed 从 5 个产品加量到 12 个——seed-product-1..5 是
+    # 已被 erp-inventory/crm-opportunity 反查引用的固定 idempotency_key，
+    # 只增不改；新增 6..12 让 NONE/BATCH/SERIAL 三种 TrackingType 各自
+    # 不止一条样本，单价铺开到几毛到近千元的完整区间，并给 4 条新数据
+    # 回填了 1-4 个月前的历史创建时间。seed-clean.sh 同步扩到清 12 个
+    # key。无行为/契约变更。
     # v1.0.4：新增 make seed/seed-clean（总纲 SOP-W-7 的种子数据归属样板）
     # ——scripts/seed.sh 灌 5 个示例产品（覆盖 NONE/BATCH/SERIAL 三种
     # TrackingType + ACTIVE/DISABLED 两种状态）。纯本地开发工具，不进
@@ -61,7 +67,7 @@ configSchema:
 
 deployment:
   type: container
-  image: brickenterprise/mdm-product:1.0.4
+  image: brickenterprise/mdm-product:1.0.5
   port: 8082                         # 端口册 registry/ports.tsv
   extraPorts:
     - { name: grpc, port: 9092 }     # → MDM_PRODUCT_GRPC_ENDPOINT（值仍以 http:// 开头）
