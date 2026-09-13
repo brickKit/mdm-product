@@ -4,7 +4,8 @@ kind: Component
 metadata:
   id: mdm/product                    # ⚠️ Fork 件必须与标准件完全一致（§3.4.1）
   name: 产品/物料主数据
-  version: 1.0.7                     # 精确版本，不接受 ^ / ~ / latest
+  version: 1.0.8                     # 精确版本，不接受 ^ / ~ / latest
+                                     # v1.0.8：import-scan 门禁提前补上铁律六第二类白名单，理由同 erp/finance 这次改动（设计书§13.3）。本组件目前没有任何代码实际用到这条豁免，无行为变更。
                                      # v1.0.7：gen/mdm/product 拆成独立嵌套 go module，理由与做法同 erp/finance 这次改动（阶段四调研记录 04 §13）。本仓库自己 standalone 构建/测试用本地 replace 完全不受影响，import-scan/单测全绿。无业务行为/契约变更。
     # v1.0.6：补齐 README.md 的"怎么起来"/"怎么用"/"配置项"三节——建仓库
     # 时留的"（Task N 后补：……）"占位符一直没人回来填，`make docs-check`
@@ -73,7 +74,7 @@ configSchema:
 
 deployment:
   type: container
-  image: brickenterprise/mdm-product:1.0.7
+  image: brickenterprise/mdm-product:1.0.8
   port: 8082                         # 端口册 registry/ports.tsv
   extraPorts:
     - { name: grpc, port: 9092 }     # → MDM_PRODUCT_GRPC_ENDPOINT（值仍以 http:// 开头）
