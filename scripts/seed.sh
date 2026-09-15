@@ -26,16 +26,25 @@ need() { command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"; }
 need docker; need python3
 
 NET="${BRICKKIT_NET:-brickkit-$(basename "$ROOT")-net}"
-docker network inspect "$NET" >/dev/null 2>&1 || die "docker 网络 $NET 不存在——先把本组件 brickkit up 起来（整套或只装这一个）"
-
-CNAME="$(docker ps --filter "name=${NET%-net}-mdm-product-" --format '{{.Names}}' | head -1)"
-[ -n "$CNAME" ] || die "mdm-product 容器没在跑——先 brickkit up"
+docker network inspect "$NET" >/dev/null 2>&1 || die "docker 网络 $NET 不存在——先把本组件 brickkit up 起来（整套或只装这一个，servedBy 合并部署也可以）"
 
 GRPC_PORT="$(awk -F'\t' '$2=="mdm/product"{print $4}' "$ROOT/registry/ports.tsv")"
 [ -n "$GRPC_PORT" ] || die "registry/ports.tsv 里找不到 mdm/product 的 grpc 端口"
 
+# ⚠️ 真机踩到的坑（阶段四附加 Task 0.5，同 mdm-customer 的既有判据）：
+# 这里原来靠 docker ps 按名字前缀找本组件自己的容器——brickKit 的
+# servedBy 合并部署下，本组件可能被收编进某个外壳，没有独立容器，找不到
+# 任何匹配。改成按 brickKit 自己给依赖方注入 *_ENDPOINT 时用的同一条
+# 地址转换规则直接拼目标地址（componentId+version 转小写、"/"和"."
+# 全部替换成"-"——brickKit 源码 internal/manifest/servicename.go 的
+# ServiceName()，已向 brickKit 确认这条规则不区分部署形态）。
+component_version() {
+  awk -v id="$1" '$0 ~ "^  - id: "id"$"{f=1;next} f&&/^    version:/{print $2;exit}' "$ROOT/brickkit.yaml"
+}
+service_name() { echo "$1-$(component_version "$1")" | tr '[:upper:]' '[:lower:]' | tr '/.' '--'; }
+
 GRPCURL="docker run --rm --network $NET -v $DIR/contracts:/contracts:ro fullstorydev/grpcurl:latest"
-TARGET="$CNAME:$GRPC_PORT"
+TARGET="$(service_name mdm/product):$GRPC_PORT"
 
 # base_uom_id=1 是迁移播种数据里 "EA"（个）那一行——固定顺序插入的第一条，
 # 同 erp-sales WH-EAST 那个既有假设一样的判据（迁移只跑一次，序列号
