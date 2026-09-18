@@ -17,31 +17,14 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
+source "$ROOT/infra/scripts/lib/seed-net.sh"
 
-C_GRN=$'\033[32m'; C_RED=$'\033[31m'; C_OFF=$'\033[0m'
-ok()  { echo "${C_GRN}✓${C_OFF} $*"; }
-die() { echo "${C_RED}✗${C_OFF} $*" >&2; exit 1; }
-
-need() { command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"; }
 need docker; need python3
 
-NET="${BRICKKIT_NET:-brickkit-$(basename "$ROOT")-net}"
-docker network inspect "$NET" >/dev/null 2>&1 || die "docker 网络 $NET 不存在——先把本组件 brickkit up 起来（整套或只装这一个，servedBy 合并部署也可以）"
+seed_net_check
 
 GRPC_PORT="$(awk -F'\t' '$2=="mdm/product"{print $4}' "$ROOT/registry/ports.tsv")"
 [ -n "$GRPC_PORT" ] || die "registry/ports.tsv 里找不到 mdm/product 的 grpc 端口"
-
-# ⚠️ 真机踩到的坑（阶段四附加 Task 0.5，同 mdm-customer 的既有判据）：
-# 这里原来靠 docker ps 按名字前缀找本组件自己的容器——brickKit 的
-# servedBy 合并部署下，本组件可能被收编进某个外壳，没有独立容器，找不到
-# 任何匹配。改成按 brickKit 自己给依赖方注入 *_ENDPOINT 时用的同一条
-# 地址转换规则直接拼目标地址（componentId+version 转小写、"/"和"."
-# 全部替换成"-"——brickKit 源码 internal/manifest/servicename.go 的
-# ServiceName()，已向 brickKit 确认这条规则不区分部署形态）。
-component_version() {
-  awk -v id="$1" '$0 ~ "^  - id: "id"$"{f=1;next} f&&/^    version:/{print $2;exit}' "$ROOT/brickkit.yaml"
-}
-service_name() { echo "$1-$(component_version "$1")" | tr '[:upper:]' '[:lower:]' | tr '/.' '--'; }
 
 GRPCURL="docker run --rm --network $NET -v $DIR/contracts:/contracts:ro fullstorydev/grpcurl:latest"
 TARGET="$(service_name mdm/product):$GRPC_PORT"
@@ -93,8 +76,7 @@ ok "产品：$P1(NONE) $P2(BATCH) $P3(NONE) $P4(SERIAL) $P5(DISABLED) $P6(NONE) 
 
 # ── 时间跨度回填（同 mdm-customer 的既有判据，products 表也不分区，
 # 直接 UPDATE 安全）：只回填新增的 6-12。
-psqlx() { docker exec -i be-postgres psql -U postgres -d brickkit_db -v ON_ERROR_STOP=1 -q "$@"; }
-psqlx <<SQL
+psqlx -q <<SQL
 SET search_path TO mdm_product;
 UPDATE products SET created_at = now() - interval '4 months', updated_at = now() - interval '4 months' WHERE id = '$P6';
 UPDATE products SET created_at = now() - interval '3 months', updated_at = now() - interval '3 months' WHERE id = '$P8';
