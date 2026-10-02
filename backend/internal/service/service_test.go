@@ -164,8 +164,8 @@ func TestUpdate_版本不一致时拒绝(t *testing.T) {
 	}
 }
 
-// TestSetStatus_两个方向都允许流转 同 mdm-customer 的判据：DISABLED 不是
-// 终态，历史订单/库存流水仍引用这条产品记录（设计计划 §2、§7）。
+// TestSetStatus_两个方向都允许流转：DISABLED 不是终态，历史订单 / 库存流水
+// 仍引用这条产品记录，停用之后可以重新启用。
 func TestSetStatus_两个方向都允许流转(t *testing.T) {
 	svc, r, db := newTestService(t)
 	ctx := context.Background()

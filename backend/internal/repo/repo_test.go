@@ -13,7 +13,7 @@ import (
 	"time"
 
 	besdk "github.com/brickKit/be-sdk-go"
-	_ "github.com/jackc/pgx/v5/stdlib" // §12.4：不用 lib/pq，驱动名注册为 "pgx"
+	_ "github.com/jackc/pgx/v5/stdlib" // 锁定栈用 pgx，不用 lib/pq；驱动名注册为 "pgx"
 )
 
 // runKey 给幂等键与 sku 加上本次运行独有的后缀。测试库跨运行保留数据：固定的
@@ -72,10 +72,9 @@ func TestCreate_sku留空时自动生成(t *testing.T) {
 }
 
 func TestCreate_standardCost落库后规整成两位小数(t *testing.T) {
-	// 同 mdm-customer 的 credit_limit 教训（Task 16 L3）：Create 必须用
-	// RETURNING 读回 NUMERIC 落库后规整过的值，不能直接回填调用方传入的
-	// 原始字符串——"0" 传进去，落库后是 "0.00"，两者不一致会让随后
-	// Get/List 读到的值和 Create 的响应对不上。
+	// Create 必须用 RETURNING 读回 NUMERIC 落库后规整过的值，不能直接回填
+	// 调用方传入的原始字符串——"0" 传进去，落库后是 "0.00"，两者不一致会让
+	// 随后 Get/List 读到的值和 Create 的响应对不上。
 	db := testDB(t)
 	ctx := context.Background()
 	r := New(db, "mdm_product_rw", "mdm_product")
@@ -111,7 +110,7 @@ func TestCreate_幂等(t *testing.T) {
 	}
 }
 
-// TestCreate_事件与业务数据同事务 验证 §3.10 的 Outbox Pattern：业务写入
+// TestCreate_事件与业务数据同事务 验证 Outbox 模式：业务写入
 // 与 PublishOutbox 必须在同一事务里，任一方失败两边都不许留下痕迹。
 func TestCreate_事件与业务数据同事务(t *testing.T) {
 	db := testDB(t)
@@ -139,7 +138,7 @@ func TestCreate_事件与业务数据同事务(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n != 0 {
-		t.Fatalf("业务回滚了但 outbox 留了 %d 条——说明事件不在同一事务里（§3.10）", n)
+		t.Fatalf("业务回滚了但 outbox 留了 %d 条——说明事件不在同一事务里", n)
 	}
 
 	var m int
@@ -169,7 +168,7 @@ func TestBatchGet_缺失的id不报错(t *testing.T) {
 func TestList_未传时间范围时自动注入90天窗口(t *testing.T) {
 	q := buildListQuery(ListInput{PageSize: 20})
 	if q.From.IsZero() || q.To.IsZero() {
-		t.Fatal("框架层必须自动注入默认时间窗口，否则用户无条件查询会拖垮数据库（§11.4.1）")
+		t.Fatal("框架层必须自动注入默认时间窗口，否则用户无条件查询会拖垮数据库")
 	}
 	days := q.To.Sub(q.From).Hours() / 24
 	if days < 89 || days > 91 {
@@ -177,7 +176,7 @@ func TestList_未传时间范围时自动注入90天窗口(t *testing.T) {
 	}
 }
 
-// TestList_最后一页返回空nextCursor而不是报错 是 L3：SQL 里"多取一条判断
+// TestList_最后一页返回空nextCursor而不是报错 连真实数据库：SQL 里"多取一条判断
 // 有没有下一页"这段逻辑只有真的跑到最后一页才会走到 else 分支。
 func TestList_最后一页返回空nextCursor而不是报错(t *testing.T) {
 	db := testDB(t)
@@ -203,8 +202,8 @@ func TestList_最后一页返回空nextCursor而不是报错(t *testing.T) {
 	}
 }
 
-// ── ConvertQuantity：这份设计计划里唯一没有参考实现可抄的部分（§8），
-// 正确性只能靠这几条测试保证。
+// ── ConvertQuantity：舍入规则（按目标单位 rounding 向上取整）是本组件自己定的，
+// 没有参考实现可对照，正确性只能靠这几条测试保证。
 
 func TestConvertQuantity_同类别正确换算并向上取整(t *testing.T) {
 	db := testDB(t)
