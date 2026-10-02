@@ -4,15 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	besdk "github.com/brickKit/be-sdk-go"
 	_ "github.com/jackc/pgx/v5/stdlib" // §12.4：不用 lib/pq，驱动名注册为 "pgx"
 )
+
+// runKey 给幂等键与 sku 加上本次运行独有的后缀。测试库跨运行保留数据：固定的
+// 幂等键从第二次运行起只会命中幂等重放、不再走写路径，固定的 sku 会撞唯一索引。
+var runKeySeq atomic.Int64
+
+func runKey(prefix string) string {
+	return fmt.Sprintf("%s-%x-%d", prefix, time.Now().UnixNano(), runKeySeq.Add(1))
+}
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -49,7 +59,7 @@ func TestCreate_sku留空时自动生成(t *testing.T) {
 	r := New(db, "mdm_product_rw", "mdm_product")
 	ea := uomID(t, db, "EA")
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-autosku-001", Name: "自动编号产品", BaseUOMID: ea})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-autosku-001"), Name: "自动编号产品", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +82,7 @@ func TestCreate_standardCost落库后规整成两位小数(t *testing.T) {
 	ea := uomID(t, db, "EA")
 
 	p, err := r.Create(ctx, CreateInput{
-		IdempotencyKey: "test-cost-zero-001", Name: "零成本产品", BaseUOMID: ea, StandardCost: "0"})
+		IdempotencyKey: runKey("test-cost-zero-001"), Name: "零成本产品", BaseUOMID: ea, StandardCost: "0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +97,7 @@ func TestCreate_幂等(t *testing.T) {
 	r := New(db, "mdm_product_rw", "mdm_product")
 	ea := uomID(t, db, "EA")
 
-	in := CreateInput{IdempotencyKey: "test-idem-001", SKU: "P-001", Name: "Widget", BaseUOMID: ea}
+	in := CreateInput{IdempotencyKey: runKey("test-idem-001"), SKU: runKey("P-001"), Name: "Widget", BaseUOMID: ea}
 	a, err := r.Create(ctx, in)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +185,7 @@ func TestList_最后一页返回空nextCursor而不是报错(t *testing.T) {
 	r := New(db, "mdm_product_rw", "mdm_product")
 	ea := uomID(t, db, "EA")
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-lastpage-001", Name: "分页边界测试", BaseUOMID: ea})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-lastpage-001"), Name: "分页边界测试", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +213,7 @@ func TestConvertQuantity_同类别正确换算并向上取整(t *testing.T) {
 	ea := uomID(t, db, "EA")
 	box := uomID(t, db, "BOX")
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-conv-001", Name: "换算测试品", BaseUOMID: ea})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-conv-001"), Name: "换算测试品", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +235,7 @@ func TestConvertQuantity_整除时不多取整(t *testing.T) {
 	ea := uomID(t, db, "EA")
 	box := uomID(t, db, "BOX")
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-conv-002", Name: "换算测试品2", BaseUOMID: ea})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-conv-002"), Name: "换算测试品2", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,10 +254,10 @@ func TestConvertQuantity_跨类别换算报错(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	r := New(db, "mdm_product_rw", "mdm_product")
-	ea := uomID(t, db, "EA")   // count
-	kg := uomID(t, db, "KG")   // weight
+	ea := uomID(t, db, "EA") // count
+	kg := uomID(t, db, "KG") // weight
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-conv-003", Name: "跨类别测试品", BaseUOMID: ea})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-conv-003"), Name: "跨类别测试品", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +288,7 @@ func TestConvertQuantity_同一基准单位换算factor为1(t *testing.T) {
 	kg := uomID(t, db, "KG")
 	g := uomID(t, db, "G")
 
-	p, err := r.Create(ctx, CreateInput{IdempotencyKey: "test-conv-004", Name: "重量测试品", BaseUOMID: kg})
+	p, err := r.Create(ctx, CreateInput{IdempotencyKey: runKey("test-conv-004"), Name: "重量测试品", BaseUOMID: kg})
 	if err != nil {
 		t.Fatal(err)
 	}

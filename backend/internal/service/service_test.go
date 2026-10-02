@@ -4,15 +4,26 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	besdk "github.com/brickKit/be-sdk-go"
 	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// runKey 给幂等键与 sku 加上本次运行独有的后缀。测试库跨运行保留数据：固定的
+// 幂等键从第二次运行起只会命中幂等重放、不再走写路径，固定的 sku 会撞唯一索引。
+var runKeySeq atomic.Int64
+
+func runKey(prefix string) string {
+	return fmt.Sprintf("%s-%x-%d", prefix, time.Now().UnixNano(), runKeySeq.Add(1))
+}
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -102,7 +113,7 @@ func TestCreate_standardCost为0时允许(t *testing.T) {
 	ea := uomID(t, db, "EA")
 
 	p, err := svc.Create(ctx, repo.CreateInput{
-		IdempotencyKey: "svc-l3-cost-zero", SKU: "P-L3-COST-ZERO", Name: "零成本测试",
+		IdempotencyKey: runKey("svc-l3-cost-zero"), SKU: runKey("P-L3-COST-ZERO"), Name: "零成本测试",
 		BaseUOMID: ea, StandardCost: "0"})
 	if err != nil {
 		t.Fatalf("standard_cost 为 0 应该允许，实际报错：%v", err)
@@ -131,13 +142,13 @@ func TestUpdate_版本不一致时拒绝(t *testing.T) {
 	ea := uomID(t, db, "EA")
 
 	p, err := r.Create(ctx, repo.CreateInput{
-		IdempotencyKey: "svc-update-001", SKU: "P-SVC-UPDATE", Name: "旧名字", BaseUOMID: ea})
+		IdempotencyKey: runKey("svc-update-001"), SKU: runKey("P-SVC-UPDATE"), Name: "旧名字", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, err = svc.Update(ctx, UpdateInput{
-		IdempotencyKey: "svc-update-002", ID: p.ID, Version: p.Version + 1, Name: "新名字"})
+		IdempotencyKey: runKey("svc-update-002"), ID: p.ID, Version: p.Version + 1, Name: "新名字"})
 	if err == nil {
 		t.Fatal("version 不一致时应该拒绝，实际没报错")
 	}
@@ -159,19 +170,19 @@ func TestSetStatus_两个方向都允许流转(t *testing.T) {
 	ea := uomID(t, db, "EA")
 
 	p, err := r.Create(ctx, repo.CreateInput{
-		IdempotencyKey: "svc-status-001", SKU: "P-SVC-STATUS", Name: "状态流转测试", BaseUOMID: ea})
+		IdempotencyKey: runKey("svc-status-001"), SKU: runKey("P-SVC-STATUS"), Name: "状态流转测试", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	disabled, err := svc.SetStatus(ctx, SetStatusInput{
-		IdempotencyKey: "svc-status-002", ID: p.ID, Version: p.Version, Status: "DISABLED"})
+		IdempotencyKey: runKey("svc-status-002"), ID: p.ID, Version: p.Version, Status: "DISABLED"})
 	if err != nil {
 		t.Fatalf("ACTIVE → DISABLED 应该允许：%v", err)
 	}
 
 	reactivated, err := svc.SetStatus(ctx, SetStatusInput{
-		IdempotencyKey: "svc-status-003", ID: p.ID, Version: disabled.Version, Status: "ACTIVE"})
+		IdempotencyKey: runKey("svc-status-003"), ID: p.ID, Version: disabled.Version, Status: "ACTIVE"})
 	if err != nil {
 		t.Fatalf("DISABLED → ACTIVE 应该允许（不是终态），实际报错：%v", err)
 	}
@@ -186,12 +197,12 @@ func TestSetStatus_停用时发出disabled事件(t *testing.T) {
 	ea := uomID(t, db, "EA")
 
 	p, err := r.Create(ctx, repo.CreateInput{
-		IdempotencyKey: "svc-event-001", SKU: "P-SVC-EVENT", Name: "事件测试", BaseUOMID: ea})
+		IdempotencyKey: runKey("svc-event-001"), SKU: runKey("P-SVC-EVENT"), Name: "事件测试", BaseUOMID: ea})
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated, err := svc.SetStatus(ctx, SetStatusInput{
-		IdempotencyKey: "svc-event-002", ID: p.ID, Version: p.Version, Status: "DISABLED"})
+		IdempotencyKey: runKey("svc-event-002"), ID: p.ID, Version: p.Version, Status: "DISABLED"})
 	if err != nil {
 		t.Fatal(err)
 	}
