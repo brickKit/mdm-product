@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Repo 持有共享连接池与本组件的 role / schema。
@@ -56,6 +58,38 @@ var ErrNotFound = errors.New("not found")
 // ErrInvalidCursor：列表游标解不开（被截断、篡改，或不是本组件发的）。
 // 这是调用方传错了参数，映射成 InvalidArgument / 400，不是服务端故障。
 var ErrInvalidCursor = errors.New("非法 cursor")
+
+// ErrSKUTaken：显式传入的 sku 已被别的产品占用。映射成 AlreadyExists / 409。
+var ErrSKUTaken = errors.New("sku 已被占用")
+
+// ErrInvalidReference：base_uom_id / category_id 不是数字，或指向不存在的
+// 单位 / 分类。调用方传错了参数，映射成 InvalidArgument / 400。
+var ErrInvalidReference = errors.New("引用的单位或分类不存在")
+
+// classifyWriteErr 把写 products 时数据库拒绝的两类调用方错误翻成哨兵错误：
+// sku 唯一索引冲突（23505）与外键指向不存在的单位 / 分类（23503）。其余原样
+// 返回（服务端故障）。只认 products_sku_uniq：command_idempotency 主键冲突
+// 是两个同键请求并发，不是 sku 被占。
+func classifyWriteErr(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	switch {
+	case pgErr.Code == "23505" && pgErr.ConstraintName == "products_sku_uniq":
+		return fmt.Errorf("%w：%s", ErrSKUTaken, pgErr.Detail)
+	case pgErr.Code == "23503":
+		return fmt.Errorf("%w：%s", ErrInvalidReference, pgErr.ConstraintName)
+	}
+	return err
+}
+
+// isNumericID 判断 id 能不能是 products.id（BIGINT）。不是数字的 id 一定
+// 不存在；不先挡住，它会在 SQL 里触发类型转换错误、变成 500。
+func isNumericID(id string) bool {
+	_, err := strconv.ParseInt(id, 10, 64)
+	return err == nil
+}
 
 // productColumns 是 scanProductRow 期望的列顺序，所有 SELECT / RETURNING
 // 都用它，免得列序与 Scan 的参数序对不上。

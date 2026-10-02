@@ -278,3 +278,93 @@ func TestSetStatus_非法状态值拒绝且不落库(t *testing.T) {
 		t.Fatalf("非法状态值不该落库，实际：%+v", got)
 	}
 }
+
+// 下面几条测的是"调用方的错"映射成 4xx，而不是 500：重复的 sku、不存在或
+// 不是数字的单位 / 分类 / 产品 id。500 会让前端只能显示"系统错误"，调用方
+// 也分不清该改请求还是该重试。
+
+func codeOf(err error) codes.Code { return status.Code(ToStatus(err)) }
+
+func TestCreate_重复sku映射成AlreadyExists(t *testing.T) {
+	svc, _, db := newTestService(t)
+	ctx := context.Background()
+	ea := uomID(t, db, "EA")
+	sku := runKey("P-DUP")
+
+	if _, err := svc.Create(ctx, repo.CreateInput{IdempotencyKey: runKey("svc-dup-a"), SKU: sku, Name: "甲", BaseUOMID: ea}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Create(ctx, repo.CreateInput{IdempotencyKey: runKey("svc-dup-b"), SKU: sku, Name: "乙", BaseUOMID: ea})
+	if got := codeOf(err); got != codes.AlreadyExists {
+		t.Fatalf("sku %s 已被占用，第二次建应映射成 AlreadyExists，实际 %v（%v）", sku, got, err)
+	}
+}
+
+func TestCreate_引用不存在或不合法的单位与分类映射成InvalidArgument(t *testing.T) {
+	svc, _, db := newTestService(t)
+	ctx := context.Background()
+	ea := uomID(t, db, "EA")
+
+	cases := []struct {
+		name string
+		in   repo.CreateInput
+	}{
+		{"base_uom_id 不存在", repo.CreateInput{BaseUOMID: "999999999"}},
+		{"base_uom_id 不是数字", repo.CreateInput{BaseUOMID: "EA"}},
+		{"category_id 不存在", repo.CreateInput{BaseUOMID: ea, CategoryID: "999999999"}},
+		{"category_id 不是数字", repo.CreateInput{BaseUOMID: ea, CategoryID: "电子"}},
+	}
+	for _, c := range cases {
+		in := c.in
+		in.IdempotencyKey, in.Name = runKey("svc-badref"), "引用测试"
+		_, err := svc.Create(ctx, in)
+		if got := codeOf(err); got != codes.InvalidArgument {
+			t.Fatalf("%s：应映射成 InvalidArgument，实际 %v（%v）", c.name, got, err)
+		}
+	}
+}
+
+func TestUpdate与SetStatus_产品不存在映射成NotFound(t *testing.T) {
+	svc, r, db := newTestService(t)
+	ctx := context.Background()
+	p, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: runKey("svc-nf"), Name: "存在的产品", BaseUOMID: uomID(t, db, "EA")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"999999999", "abc"} {
+		_, err := svc.Update(ctx, UpdateInput{IdempotencyKey: runKey("svc-nf-up"), ID: id, Version: 1, Name: "新名字"})
+		if got := codeOf(err); got != codes.NotFound {
+			t.Fatalf("Update id=%s：应映射成 NotFound，实际 %v（%v）", id, got, err)
+		}
+		_, err = svc.SetStatus(ctx, SetStatusInput{IdempotencyKey: runKey("svc-nf-st"), ID: id, Version: 1, Status: "DISABLED"})
+		if got := codeOf(err); got != codes.NotFound {
+			t.Fatalf("SetStatus id=%s：应映射成 NotFound，实际 %v（%v）", id, got, err)
+		}
+	}
+	// 对照：产品存在、version 不对仍是乐观锁冲突。
+	_, err = svc.Update(ctx, UpdateInput{IdempotencyKey: runKey("svc-nf-stale"), ID: p.ID, Version: p.Version + 1, Name: "新名字"})
+	if got := codeOf(err); got != codes.Aborted {
+		t.Fatalf("version 不对应映射成 Aborted，实际 %v（%v）", got, err)
+	}
+}
+
+func TestGet与BatchGet_不是数字的id当成不存在(t *testing.T) {
+	svc, r, db := newTestService(t)
+	ctx := context.Background()
+	p, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: runKey("svc-badid"), Name: "批量取测试", BaseUOMID: uomID(t, db, "EA")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Get(ctx, "abc"); codeOf(err) != codes.NotFound {
+		t.Fatalf("Get(abc) 应映射成 NotFound，实际 %v（%v）", codeOf(err), err)
+	}
+	found, missing, err := svc.BatchGet(ctx, []string{"abc", p.ID})
+	if err != nil {
+		t.Fatalf("BatchGet 对不是数字的 id 不该报错：%v", err)
+	}
+	if len(found) != 1 || found[0].ID != p.ID || len(missing) != 1 || missing[0] != "abc" {
+		t.Fatalf("期望命中 %s、缺失 abc，实际 found=%d missing=%v", p.ID, len(found), missing)
+	}
+}

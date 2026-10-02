@@ -20,8 +20,10 @@ func ToStatus(err error) error {
 		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, repo.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, repo.ErrInvalidCursor):
+	case errors.Is(err, repo.ErrInvalidCursor), errors.Is(err, repo.ErrInvalidReference):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, repo.ErrSKUTaken):
+		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, repo.ErrCrossCategoryConversion):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, ErrInvalidArgument):

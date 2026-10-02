@@ -83,7 +83,7 @@ func parseOptionalID(field, s string) (sql.NullInt64, error) {
 	}
 	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		return sql.NullInt64{}, fmt.Errorf("%s 不合法: %w", field, err)
+		return sql.NullInt64{}, fmt.Errorf("%w：%s 不是数字：%q", ErrInvalidReference, field, s)
 	}
 	return sql.NullInt64{Int64: v, Valid: true}, nil
 }
@@ -145,7 +145,7 @@ func insertProduct(ctx context.Context, tx *sql.Tx, in CreateInput) (*Product, e
 	}
 	baseUOMID, err := strconv.ParseInt(in.BaseUOMID, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("base_uom_id 不合法: %w", err)
+		return nil, fmt.Errorf("%w：base_uom_id 不是数字：%q", ErrInvalidReference, in.BaseUOMID)
 	}
 	categoryID, err := parseOptionalID("category_id", in.CategoryID)
 	if err != nil {
@@ -174,7 +174,7 @@ func insertProduct(ctx context.Context, tx *sql.Tx, in CreateInput) (*Product, e
 	}
 	p, err := scanProductRow(row)
 	if err != nil {
-		return nil, fmt.Errorf("insert products: %w", err)
+		return nil, fmt.Errorf("insert products: %w", classifyWriteErr(err))
 	}
 	return p, nil
 }
@@ -233,10 +233,13 @@ func (r *Repo) SetStatus(ctx context.Context, in SetStatusInput) (*Product, erro
 
 // updateWithVersion 是 Update 与 SetStatus 共用的事务：幂等重放、带
 // version 条件的 UPDATE（$1 = id、$2 = version，set 里的占位符从 $3 起）、
-// 记幂等键、按更新后的行选事件 subject 写 Outbox。UPDATE 一行都没命中就是
-// 乐观锁冲突。
+// 记幂等键、按更新后的行选事件 subject 写 Outbox。UPDATE 一行都没命中时，
+// 产品不存在是 ErrNotFound，存在就是乐观锁冲突。
 func (r *Repo) updateWithVersion(ctx context.Context, key, command, id string, version int64,
 	set string, setArgs []any, subject func(*Product) string) (*Product, error) {
+	if !isNumericID(id) {
+		return nil, fmt.Errorf("%w：产品 %q", ErrNotFound, id)
+	}
 	var out *Product
 	err := besdk.WithTx(ctx, r.db, r.role, r.schema, func(tx *sql.Tx) error {
 		if p, ok, err := replayProduct(ctx, tx, key); err != nil || ok {
@@ -252,10 +255,10 @@ func (r *Repo) updateWithVersion(ctx context.Context, key, command, id string, v
 			RETURNING `+productColumns, args...)
 		p, err := scanProductRow(row)
 		if err == sql.ErrNoRows {
-			return ErrVersionConflict
+			return missingOrConflict(ctx, tx, id)
 		}
 		if err != nil {
-			return fmt.Errorf("update products: %w", err)
+			return fmt.Errorf("update products: %w", classifyWriteErr(err))
 		}
 
 		if err := recordIdempotency(ctx, tx, key, command, p.ID); err != nil {
@@ -268,4 +271,16 @@ func (r *Repo) updateWithVersion(ctx context.Context, key, command, id string, v
 		return nil
 	})
 	return out, err
+}
+
+// missingOrConflict 区分带 version 条件的 UPDATE 没命中的两种原因。
+func missingOrConflict(ctx context.Context, tx *sql.Tx, id string) error {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("查 products: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w：产品 %s", ErrNotFound, id)
+	}
+	return ErrVersionConflict
 }
