@@ -17,21 +17,20 @@ import (
 	"github.com/brickKit/mdm-product/v2/backend/internal/service"
 )
 
-// RegisterRoutes 挂载业务路由。eng 已经是 besdk.NewGinEngine 产出的、
-// 挂好中间件的 engine——这里只负责注册业务 handler。
+// RegisterRoutes 挂载业务路由。每条路由都带 assembly.yaml 里声明的权限键
+// 注册（besdk.GET / POST / PATCH），没有不鉴权的业务路由。
 //
-// 阶段三 Task 6：权限键从阶段二的 besdk.Public 换成 assembly.yaml 里
-// 声明的真实键。`convert-quantity` 是纯计算（换算因子查表，不读写任何
-// 具体产品的敏感字段），归到 view 档——它是"看产品能不能换算"的一部分，
-// 不是独立的业务动作，不需要单独的权限键。`set_status`（启用/停用）算
-// 编辑动作，归 edit。`data_scopes: none`，本组件不需要任何数据范围过滤。
+// 启用 / 停用单独用 mdm.product.set_status，不跟编辑共用 mdm.product.edit：
+// 停用一个产品会让它从所有选择器里消失，"能改名字就能停用"给的权限太宽。
+// convert-quantity 是不落库的试算，归 view。data_scopes: none：产品主数据
+// 全员可见，不做行级过滤。
 func RegisterRoutes(eng *gin.Engine, svc *service.Service) {
 	g := eng.Group("/mdm/product")
 	besdk.GET(g, "/products", "mdm.product.view", listHandler(svc))
 	besdk.GET(g, "/products/:id", "mdm.product.view", getHandler(svc))
 	besdk.POST(g, "/products", "mdm.product.create", createHandler(svc))
 	besdk.PATCH(g, "/products/:id", "mdm.product.edit", updateHandler(svc))
-	besdk.POST(g, "/products/:id/status", "mdm.product.edit", setStatusHandler(svc))
+	besdk.POST(g, "/products/:id/status", "mdm.product.set_status", setStatusHandler(svc))
 	besdk.POST(g, "/products/convert-quantity", "mdm.product.view", convertQuantityHandler(svc))
 }
 
