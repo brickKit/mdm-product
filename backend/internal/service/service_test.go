@@ -250,3 +250,31 @@ func TestList_非法游标映射成InvalidArgument(t *testing.T) {
 		}
 	}
 }
+
+// TestSetStatus_非法状态值拒绝且不落库：REST 的 status 是自由字符串，只有
+// ACTIVE / DISABLED 两个合法值；别的值（含空串）要在落库之前拒绝，否则
+// products.status 里会出现谁都不认识的状态。
+func TestSetStatus_非法状态值拒绝且不落库(t *testing.T) {
+	svc, r, db := newTestService(t)
+	ctx := context.Background()
+	p, err := r.Create(ctx, repo.CreateInput{
+		IdempotencyKey: runKey("svc-badstatus"), Name: "非法状态测试", BaseUOMID: uomID(t, db, "EA")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range []string{"DELETED", "disabled", ""} {
+		_, err := svc.SetStatus(ctx, SetStatusInput{
+			IdempotencyKey: runKey("svc-badstatus-set"), ID: p.ID, Version: p.Version, Status: s})
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("status=%q 应该拒绝并返回 ErrInvalidArgument，实际：%v", s, err)
+		}
+	}
+	got, _, err := r.BatchGet(ctx, []string{p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Status != "ACTIVE" || got[0].Version != p.Version {
+		t.Fatalf("非法状态值不该落库，实际：%+v", got)
+	}
+}

@@ -30,11 +30,18 @@ func toProtoStatus(s string) productv1.ProductStatus {
 	return productv1.ProductStatus_PRODUCT_STATUS_ACTIVE
 }
 
+// fromProtoStatus 把 UNSPECIFIED 映射成空串：SetStatus 漏填 status 由
+// service 拒绝（InvalidArgument），不当成 ACTIVE；List 的 status_filter
+// 是 UNSPECIFIED 时不过滤。
 func fromProtoStatus(s productv1.ProductStatus) string {
-	if s == productv1.ProductStatus_PRODUCT_STATUS_DISABLED {
+	switch s {
+	case productv1.ProductStatus_PRODUCT_STATUS_ACTIVE:
+		return "ACTIVE"
+	case productv1.ProductStatus_PRODUCT_STATUS_DISABLED:
 		return "DISABLED"
+	default:
+		return ""
 	}
-	return "ACTIVE"
 }
 
 func toProtoTracking(s string) productv1.TrackingType {
@@ -111,10 +118,7 @@ func (s *server) Get(ctx context.Context, req *productv1.GetRequest) (*productv1
 }
 
 func (s *server) List(ctx context.Context, req *productv1.ListRequest) (*productv1.ListResponse, error) {
-	in := repo.ListInput{Cursor: req.Cursor, PageSize: int(req.PageSize)}
-	if req.StatusFilter != productv1.ProductStatus_PRODUCT_STATUS_UNSPECIFIED {
-		in.StatusFilter = fromProtoStatus(req.StatusFilter)
-	}
+	in := repo.ListInput{Cursor: req.Cursor, PageSize: int(req.PageSize), StatusFilter: fromProtoStatus(req.StatusFilter)}
 	if req.CreatedAfter != nil {
 		in.CreatedAfter = req.CreatedAfter.AsTime()
 	}

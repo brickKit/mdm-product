@@ -116,6 +116,9 @@ type SetStatusInput struct {
 }
 
 func (s *Service) SetStatus(ctx context.Context, in SetStatusInput) (*repo.Product, error) {
+	if in.Status != "ACTIVE" && in.Status != "DISABLED" {
+		return nil, fmt.Errorf("%w: status 只能是 ACTIVE 或 DISABLED：%q", ErrInvalidArgument, in.Status)
+	}
 	p, err := s.repo.SetStatus(ctx, repo.SetStatusInput{
 		IdempotencyKey: in.IdempotencyKey,
 		ID:             in.ID,
