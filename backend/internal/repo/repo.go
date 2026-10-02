@@ -53,6 +53,10 @@ var ErrVersionConflict = errors.New("version 冲突：与库里当前值不一�
 // ErrNotFound：按 id 查不到。映射成 NotFound / 404。
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalidCursor：列表游标解不开（被截断、篡改，或不是本组件发的）。
+// 这是调用方传错了参数，映射成 InvalidArgument / 400，不是服务端故障。
+var ErrInvalidCursor = errors.New("非法 cursor")
+
 // productColumns 是 scanProductRow 期望的列顺序，所有 SELECT / RETURNING
 // 都用它，免得列序与 Scan 的参数序对不上。
 const productColumns = `id, sku, name, category_id, base_uom_id, tracking_type, standard_cost,

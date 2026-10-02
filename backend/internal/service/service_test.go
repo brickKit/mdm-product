@@ -15,6 +15,8 @@ import (
 	besdk "github.com/brickKit/be-sdk-go"
 	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // runKey 给幂等键与 sku 加上本次运行独有的后缀。测试库跨运行保留数据：固定的
@@ -231,5 +233,20 @@ func TestConvertQuantity_入参空值时拒绝(t *testing.T) {
 	}
 	if _, err := svc.ConvertQuantity(ctx, "1", "5", "", "2"); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("from_uom_id 为空应该拒绝，实际：%v", err)
+	}
+}
+
+// TestList_非法游标映射成InvalidArgument：游标被截断、篡改或根本不是本组件发的，
+// 是调用方传错了参数，应当回 400，不能当成服务端故障回 500。
+func TestList_非法游标映射成InvalidArgument(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	for _, cursor := range []string{"!!!不是base64", "bm90LWEtY3Vyc29y"} {
+		_, err := svc.List(context.Background(), repo.ListInput{Cursor: cursor})
+		if err == nil {
+			t.Fatalf("cursor=%q 应该报错", cursor)
+		}
+		if got := status.Code(ToStatus(err)); got != codes.InvalidArgument {
+			t.Fatalf("cursor=%q 应映射成 InvalidArgument，实际 %v（%v）", cursor, got, err)
+		}
 	}
 }
