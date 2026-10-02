@@ -9,8 +9,8 @@ import (
 
 	productv1 "github.com/brickKit/mdm-product/gen/mdm/product/v1"
 
-	"github.com/brickKit/mdm-product/backend/internal/repo"
-	"github.com/brickKit/mdm-product/backend/internal/service"
+	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
+	"github.com/brickKit/mdm-product/v2/backend/internal/service"
 )
 
 type server struct {

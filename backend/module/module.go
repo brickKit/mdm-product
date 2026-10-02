@@ -14,19 +14,18 @@ import (
 	productv1 "github.com/brickKit/mdm-product/gen/mdm/product/v1"
 	"google.golang.org/grpc"
 
-	grpcapi "github.com/brickKit/mdm-product/backend/internal/grpc"
-	httpapi "github.com/brickKit/mdm-product/backend/internal/http"
-	"github.com/brickKit/mdm-product/backend/internal/partition"
-	"github.com/brickKit/mdm-product/backend/internal/repo"
-	"github.com/brickKit/mdm-product/backend/internal/service"
-	"github.com/brickKit/mdm-product/migrations"
+	grpcapi "github.com/brickKit/mdm-product/v2/backend/internal/grpc"
+	httpapi "github.com/brickKit/mdm-product/v2/backend/internal/http"
+	"github.com/brickKit/mdm-product/v2/backend/internal/partition"
+	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
+	"github.com/brickKit/mdm-product/v2/backend/internal/service"
 )
 
 // New 构造 mdm-product 模块。签名一个字都不许改（§12.5.1）——62 个
 // 组件都是这一个签名，外壳启动器与 be-ops 产出 4 都按它生成。
 func New(ctx context.Context, rt *besdk.Runtime) (*besdk.Module, error) {
 	// ⚠️ 配置只从 rt.Config 来，模块里零 os.Getenv（§12.5.3、决策 110）。
-	schema := rt.Config.StringOr("pgSchema", "mdm_product")
+	schema := rt.Config.StringOr("PG_SCHEMA", "mdm_product")
 	role := schema + "_rw"
 
 	// ⚠️ 池从 rt.DB 来，不许自己 sql.Open（§13.3 铁律二）。
@@ -46,8 +45,6 @@ func New(ctx context.Context, rt *besdk.Runtime) (*besdk.Module, error) {
 		RegisterGRPC: func(gs *grpc.Server) {
 			productv1.RegisterProductServiceServer(gs, grpcapi.New(svc))
 		},
-
-		Migrations: migrations.FS, // 合并态由外壳按拓扑顺序跑（§13.3 铁律五）
 
 		// 后台循环：Outbox 推送 + 分区自动维护。两个循环必须并发跑，不能
 		// 顺序调用——StartOutboxPump 是阻塞到 ctx 取消才返回的循环。

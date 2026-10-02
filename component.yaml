@@ -2,103 +2,63 @@ apiVersion: brickkit/v1
 kind: Component
 
 metadata:
-  id: mdm/product                    # ⚠️ Fork 件必须与标准件完全一致（§3.4.1）
-  name: 产品/物料主数据
-  version: 1.0.11                     # 精确版本，不接受 ^ / ~ / latest
-                                      # v1.0.11：同 mdm/customer 这次改动，scripts/seed.sh 改成 source infra/scripts/lib/seed-net.sh，理由同上。真机跑通 make seed（12 个示例产品，含时间跨度回填），无业务行为/契约变更。
-                                     # v1.0.10：同 mdm/customer 这次改动，同样的坑同样的修法。真机在 servedBy 部署下跑通 make seed。无业务行为/契约变更。
-                                     # v1.0.9：同 mdm/customer 这次改动，删掉 deployment.labels 的 prometheus.io/port，理由同上。无业务行为/契约变更。
-                                     # v1.0.8：import-scan 门禁提前补上铁律六第二类白名单，理由同 erp/finance 这次改动（设计书§13.3）。本组件目前没有任何代码实际用到这条豁免，无行为变更。
-                                     # v1.0.7：gen/mdm/product 拆成独立嵌套 go module，理由与做法同 erp/finance 这次改动（阶段四调研记录 04 §13）。本仓库自己 standalone 构建/测试用本地 replace 完全不受影响，import-scan/单测全绿。无业务行为/契约变更。
-    # v1.0.6：补齐 README.md 的"怎么起来"/"怎么用"/"配置项"三节——建仓库
-    # 时留的"（Task N 后补：……）"占位符一直没人回来填，`make docs-check`
-    # 的占位符检测正则同时修正（原来只查 TBD/TODO/待补，没覆盖实际用的
-    # "后补"措辞，见 docs/dev/field-tested-pitfalls-log.md）。纯文档，
-    # 无行为/契约变更。
-    # v1.0.5：make seed 从 5 个产品加量到 12 个——seed-product-1..5 是
-    # 已被 erp-inventory/crm-opportunity 反查引用的固定 idempotency_key，
-    # 只增不改；新增 6..12 让 NONE/BATCH/SERIAL 三种 TrackingType 各自
-    # 不止一条样本，单价铺开到几毛到近千元的完整区间，并给 4 条新数据
-    # 回填了 1-4 个月前的历史创建时间。seed-clean.sh 同步扩到清 12 个
-    # key。无行为/契约变更。
-    # v1.0.4：新增 make seed/seed-clean（总纲 SOP-W-7 的种子数据归属样板）
-    # ——scripts/seed.sh 灌 5 个示例产品（覆盖 NONE/BATCH/SERIAL 三种
-    # TrackingType + ACTIVE/DISABLED 两种状态）。纯本地开发工具，不进
-    # 镜像、无行为/契约变更。
-                                      # v1.0.2：纯重新构建，deployment.image 之前一直
-                                      # 停在 1.0.0，v1.0.1 的源码改动从没真的打进镜像
-                                      # 过（阶段三 Task 4 核对 brickkit up 真机时发现）
-  description: SKU、分类、计量单位换算、批次/序列号追踪策略、标准成本
-  license: Apache-2.0                # 平台支持这一格（manifest.Metadata.License），填上
-  vendor: brickKit                   # 同上，可选但填了对交付文档有用
+  id: mdm/product
+  name: Product master data
+  version: 2.0.0
+  description: "SKUs, categories, unit-of-measure conversions, batch and serial tracking policies, and standard costs."
+  repository: https://github.com/brickKit/mdm-product
+  license: Apache-2.0
+  vendor: brickKit
 
 tags: [mdm, product, master-data]
 
 artifacts:
   - type: api-contract
     format: protobuf
-    files:
-      - contracts/mdm/product/v1/product.proto
-      - contracts/events/product.events.json
+    files: [contracts/mdm/product/v1/product.proto, contracts/events/product.events.json]
   - type: api-contract
     format: openapi
     files: [contracts/product.openapi.yaml]
-  - type: metadata                   # ← assembly.yaml 靠这一条随组件分发（§3.5）
+  - type: metadata
     files: [assembly.yaml]
 
 dependencies:
-  components: []                     # mdm 是只读枢纽，自己不调任何人（§2.6）。
-                                      # ⚠️ 尤其不依赖 erp/inventory——库存数量走展示上推，不是同步调用
-  resources:
-    # ⚠️ engine 逐字参与匹配（设计书 §2.7.3.1）：这里写的词必须与
-    #    brickkit.yaml 的 resources[].engine 完全相同，平台不认别名。
-    - { kind: database, engine: postgresql }   # 产品名：不在替换范围
-    - { kind: mq,       engine: nats }         # 产品名：换 Kafka 是一次迁移，要让平台阻断
+  components: []
 
 configSchema:
   type: object
   properties:
-    pgSchema:                        # ⚠️ 不能叫 databaseSchema，DATABASE_ 是保留前缀
-      type: string
-      default: mdm_product
-    iamJwksUrl:                      # JWT 本地验签的公钥来源。不对 IAM 建依赖边（决策 87）
-      type: string
-    authzBundleUrl:                  # 阶段三 Task 6：功能权限判定的 bundle 轮询地址，
-                                      # 指向 infra-authz。不建依赖边（同 iamJwksUrl 的
-                                      # 判据，设计书 §14.1.4）
-      type: string
-    otelBaseUrl:                     # ⚠️ 不能叫 otelEndpoint，*_ENDPOINT 是保留后缀
-      type: string
-      default: ""                    # 空 → Blackhole Exporter，零成本（§7.5）
-    # ⚠️ 没有 defaultPageSize/listWindowDays：mdm-customer 声明过这两项
-    # 但代码从没读取——List 的默认页大小/时间窗口实际上是
-    # besdk.ListWindow 的包级常量，写在这里只会让人以为能配实际不能配
-    # （见 mdm-customer 的 component.yaml 与 AGENTS.md 那条记录）。
+    PG_HOST: {type: string}
+    PG_PORT: {type: string, default: "5432"}
+    PG_DATABASE: {type: string}
+    PG_USER: {type: string}
+    PG_PASSWORD: {type: string, secret: true}
+    PG_SCHEMA: {type: string, default: mdm_product}
+    NATS_URL: {type: string}
+    OTEL_BASE_URL: {type: string, default: ""}
+    AUTHZ_BUNDLE_URL: {type: string}
+    IAM_JWKS_URL: {type: string}
+  required: [PG_HOST, PG_DATABASE, PG_USER, PG_PASSWORD, NATS_URL, AUTHZ_BUNDLE_URL, IAM_JWKS_URL]
 
 deployment:
   type: container
-  image: brickenterprise/mdm-product:1.0.11
-  port: 8082                         # 端口册 registry/ports.tsv
+  build: {context: ., dockerfile: Dockerfile}
+  port: 8082
   extraPorts:
-    - { name: grpc, port: 9092 }     # → MDM_PRODUCT_GRPC_ENDPOINT（值仍以 http:// 开头）
-  labels:                            # 平台只搬运，不解释键值。值必须是字符串
+    - {name: grpc, port: 9092}
+  labels:
     prometheus.io/scrape: "true"
-    # prometheus.io/port 原来写在这里——阶段四附加 Task 0.1 真机验证
-    # servedBy 时发现这个标签会跟同外壳其它成员的 prometheus.io/port 撞车
-    # 报错（每个组件的值天然不同，servedBy 的 labels 合并规则没有像 env
-    # 变量合并那样排除这类"语义上必然因组件而异"的标签，已反馈给 brickKit，
-    # 见装配仓库 docs/dev/brickKit反馈-servedBy的labels合并漏了排除规则.md）。
-    # 在 brickKit 修复或给出结论之前，暂时从这里删掉，只在合并后的外壳
-    # 自己的条目上保留一份——跟"合并后指标只能走一个共享抓取端口"这个
-    # 事实本来就一致，不是单纯绕过。
-    prometheus.io/path: "/metrics"
+    prometheus.io/path: /metrics
   resources:
-    requests: { cpu: "100m", memory: "128Mi" }
+    requests: {cpu: 100m, memory: 128Mi}
 
 migration:
-  command: ["./migrate", "up"]
+  command: [./migrate, up]
 
 healthCheck:
   type: http
-  path: /healthz                     # ⚠️ 只查本进程存活，严禁查库或查依赖组件（§12.3.6）
-  # startPeriodSeconds 不写：默认就是 60，Go 组件够用（§12.3.5）
+  path: /healthz
+
+local:
+  language: go
+  runCommand: [go, run, ./backend/cmd/server]
