@@ -23,7 +23,7 @@
 - **PostgreSQL**：schema `mdm_product`；如果你的 schema 约定会建 `mdm_product_archive` 也可以有（本组件从不写它）。登录角色 `mdm_product_rw`，在 `mdm_product` 上有 `USAGE` 与 `CREATE`，以及它的密码。迁移以这个角色运行并建表（同时播种四个计量单位），所以表归这个角色所有；这一点重要，因为运行中的组件要自己给 `event_outbox` / `event_inbox` 建周分区，这需要表的所有权。这些 BrickKit 都不建；在 BrickEnterprise 装配项目里由 `make dev-env` 把密码写进 `.env`、`make db-init` 建 schema、角色与授权。
 - **NATS**：`NATS_URL` 可达。组件经 Outbox 表和后台推送发布事件；NATS 不可达时照样启动，事件留在 Outbox 里等。
 - **授权**（`infra/authz`）与**身份**（`infra/iam-casdoor`，或任何提供 JWKS 的 IAM）：`AUTHZ_BUNDLE_URL` 与 `IAM_JWKS_URL` 可达，REST 路由才会回错误以外的东西。它们是配置，不是依赖：没有它们组件照样启动。
-- **权限键**：能启用 / 停用产品的角色需要 `mdm.product.set_status`；只有 `mdm.product.edit` 不再能启用 / 停用。
+- **权限键**：启用 / 停用产品（`POST /products/{id}/status`）要求单独的权限键 `mdm.product.set_status`；`mdm.product.edit` 只管编辑，所以要把 `mdm.product.set_status` 授给能启用 / 停用产品的角色。
 - 演示数据（可选）：组件跑起来之后，在组件目录 `make seed` 经真实 gRPC 接口建 14 个示例产品。
 
 ## 依赖说明
