@@ -5,8 +5,10 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -101,12 +103,12 @@ func getHandler(svc *service.Service) gin.HandlerFunc {
 
 func listHandler(svc *service.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		pageSize, _ := strconv.Atoi(c.Query("page_size"))
-		out, err := svc.List(c.Request.Context(), repo.ListInput{
-			Cursor:       c.Query("cursor"),
-			PageSize:     pageSize,
-			StatusFilter: c.Query("status_filter"),
-		})
+		in, err := parseListInput(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		out, err := svc.List(c.Request.Context(), in)
 		if err != nil {
 			_ = c.Error(service.ToStatus(err))
 			return
@@ -117,6 +119,33 @@ func listHandler(svc *service.Service) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"products": dtos, "next_cursor": out.NextCursor})
 	}
+}
+
+// parseListInput 读 GET /products 的查询参数。created_after / created_before
+// 是 RFC 3339 时间，格式不对就是调用方的错（400），不悄悄退回默认窗口。
+// page_size 不是数字时按 0 处理，由 besdk.ListWindow 取默认页大小。
+func parseListInput(c *gin.Context) (repo.ListInput, error) {
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	in := repo.ListInput{
+		Cursor:       c.Query("cursor"),
+		PageSize:     pageSize,
+		StatusFilter: c.Query("status_filter"),
+	}
+	for _, f := range []struct {
+		name string
+		dst  *time.Time
+	}{{"created_after", &in.CreatedAfter}, {"created_before", &in.CreatedBefore}} {
+		raw := c.Query(f.name)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return repo.ListInput{}, fmt.Errorf("%s 不是 RFC 3339 时间：%q", f.name, raw)
+		}
+		*f.dst = t
+	}
+	return in, nil
 }
 
 type updateRequest struct {
