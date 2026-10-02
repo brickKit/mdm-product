@@ -1,4 +1,5 @@
-// Package grpc 实现 mdm.product.v1.ProductService——内部 gRPC 面（§2.1）。
+// Package grpc 实现 mdm.product.v1.ProductService：组件之间走的内部面（对外的
+// REST 面在 internal/http）。
 // HTTP 与 gRPC 共用同一个 service.Service，业务逻辑只写一遍。
 package grpc
 
@@ -138,7 +139,8 @@ func (s *server) List(ctx context.Context, req *productv1.ListRequest) (*product
 	return &productv1.ListResponse{Products: products, NextCursor: out.NextCursor}, nil
 }
 
-// BatchGet 是 BFF 与 erp-sales 防 N+1 的唯一合法调用方式（§3.8）。
+// BatchGet 是别的组件防 N+1 的读法：建单、列表页一次取回全部行的产品，
+// 不逐行调 Get。
 func (s *server) BatchGet(ctx context.Context, req *productv1.BatchGetRequest) (*productv1.BatchGetResponse, error) {
 	found, missing, err := s.svc.BatchGet(ctx, req.Ids)
 	if err != nil {

@@ -1,7 +1,7 @@
-// Package http 是 mdm-product 的 REST 面（对外路径前缀 /mdm/product，
-// 与 assembly.yaml 的 edge_routes 一致）。/healthz、/metrics 已经由
-// besdk.NewGinEngine 统一挂好（零依赖、恒 200，§12.3.6），这里不重复挂、
-// 也不写进 contracts/product.openapi.yaml。
+// Package http 是 mdm-product 的 REST 面（路径前缀 /mdm/product，与
+// assembly.yaml 的 edge_routes 一致）。/healthz、/metrics 由
+// besdk.NewGinEngine 挂好（/healthz 只答进程活着、不查依赖），这里不重复挂，
+// 也不写进 openapi（契约以 /mdm/product 为前缀，写进去会暗示错误的路径）。
 package http
 
 import (

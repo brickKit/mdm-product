@@ -1,19 +1,19 @@
 openapi: 3.0.3
 info:
   title: mdm-product · 产品/物料主数据
-  version: 1.0.0
+  version: 2.0.0
   description: |
-    对外 REST 面。内部 gRPC，外部 HTTP（§2.1）。
-    ⚠️ 不暴露 BatchGet/GetSummary——它们是给其他组件的 gRPC 客户端用的批量读优化
-    （§2.1：内部 gRPC，外部 HTTP/GraphQL）。
-    ConvertQuantity 例外：前端下单页面要实时试算换算结果，必须走后端 DryRun 接口
-    （设计书 §8.4），所以它暴露到 REST。
+    对外 REST 面；别的组件走 gRPC（contracts/mdm/product/v1/product.proto）。
+    BatchGet / GetSummary 只在 gRPC 上：它们是给别的组件防 N+1 的批量读，
+    暴露成公网 REST 等于给了一个"按 id 列表一次拿走一批产品"的接口。
+    ConvertQuantity 例外：前端下单页要实时试算"3 箱 = 36 个"，换算规则只在
+    后端，前端不自己算，所以它在 REST 上。
+
+    /healthz 不在这份契约里：它是 be-sdk-go 的 NewGinEngine 给每个组件统一
+    挂的裸根路径，不带 /mdm/product 前缀。
 
 servers:
   - url: /mdm/product
-
-# ⚠️ /healthz 不在这份契约里：它不属于本组件的业务契约，是 be-sdk-go 的
-# NewGinEngine 给每个组件统一挂的，路径固定是裸根路径 /healthz（§12.3.6）。
 
 paths:
   /products:
@@ -178,7 +178,7 @@ components:
       properties:
         idempotency_key:
           type: string
-          description: 跨重试幂等键（§4.6），被调用方用唯一约束去重
+          description: 跨重试的幂等键；同一个键重试返回第一次的结果，不重复执行
         sku:
           type: string
           description: 可选，留空则按 "P" + 6 位自增数字生成
@@ -223,4 +223,4 @@ components:
       properties:
         qty:
           type: string
-          description: 已按目标单位的 rounding 向上取整（CEIL，设计计划 §2.1）
+          description: 已按目标单位的 rounding 向上取整（CEIL）：出库时宁可多备、不可少发

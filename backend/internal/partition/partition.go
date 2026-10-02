@@ -1,10 +1,9 @@
-// Package partition 是 Module.Start 的后台循环之一：为 event_outbox/
-// event_inbox 自动创建未来的周分区（决策 54、§11.5.1）——跨周时分区
-// 不存在会让写入直接崩，migrations 里只建了当时那几周的初始分区
-// （见 002_create_outbox_inbox.up.sql），往后必须有人接着建。
+// Package partition 是 Module.Start 的后台循环之一：为 event_outbox /
+// event_inbox 提前建好未来的周分区。跨周时分区不存在，写 Outbox 会直接失败；
+// 迁移只建了最初那几周（002_create_outbox_inbox.up.sql），往后靠这里接着建。
 //
-// products/product_categories/uoms/uom_conversions 不在这里——它们不
-// 分区（设计计划 §7）。
+// products / product_categories / uoms / uom_conversions 不在这里：主数据
+// 不分区。
 package partition
 
 import (
@@ -26,7 +25,7 @@ var partitionedTables = []string{"event_outbox", "event_inbox"}
 
 // Start 立刻检查一次，之后每 24 小时检查一次。单次检查失败只记日志，
 // 不让整个循环退出——下一轮还有机会补上，且不能因为这个后台任务死了
-// 拖累整个组件（Start 只在 ctx.Done 时返回，§13.3 铁律七）。
+// 拖累整个组件（Start 只在 ctx.Done 时返回）。
 func Start(ctx context.Context, db *sql.DB, role, schema string, logger *slog.Logger) error {
 	if err := ensureAll(ctx, db, role, schema); err != nil {
 		logger.Error("分区维护失败", "error", err)
@@ -76,10 +75,9 @@ func mondayOf(t time.Time) time.Time {
 
 // ensurePartition 用 to_regclass 先确认分区存不存在，不存在才建。
 //
-// ⚠️ 不能反过来"先建、报 already exists 就忽略"——PostgreSQL 里一条
-// 语句真的执行失败会让整个事务 aborted，即使这里选择忽略那个错误，
-// 事务在数据库那侧也回不去了（be-sdk-go 的 BatchGetRouted 曾经在这条上
-// 踩过坑，见 archive.go 的注释与 docs/dev/实测踩坑记录.md A4e）。
+// 不能反过来"先建、报 already exists 就忽略"：PostgreSQL 里一条语句真的
+// 执行失败，整个事务就被标记为 aborted，即使 Go 这边忽略那个错误，后面的
+// 语句与提交也都会失败。
 func ensurePartition(ctx context.Context, tx *sql.Tx, table string, from, to time.Time) error {
 	name := fmt.Sprintf("%s_%s", table, from.Format("2006_01_02"))
 

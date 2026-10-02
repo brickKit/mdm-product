@@ -1,9 +1,6 @@
-// Package service 是 mdm-product 的业务规则层。判过 SOP-P：这个组件是
-// 只读枢纽 + 常规 CRUD，不用任何设计模式，直接写就是最清楚的（同
-// mdm-customer 的判据，详见 docs/手册.md）。这一层薄——真正的乐观锁
-// 判断、事件发布都在 repo 层随 SQL 一起做（同一个事务里），这里只负责
-// 给 http/grpc 一个不依赖 repo 内部细节的稳定入口，外加入参校验与错误
-// 日志。
+// Package service 是 mdm-product 的业务规则层。这一层薄：乐观锁、幂等、
+// 事件发布都在 repo 层随 SQL 一起做（同一个事务里），这里给 http / grpc 一个
+// 共用的入口，外加入参校验与错误日志。
 package service
 
 import (
@@ -17,9 +14,8 @@ import (
 	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
 )
 
-// ErrInvalidArgument 是入参本身不合法（不是数据库层面的冲突/缺失），
-// grpc/http 两层都通过 ToStatus 把它映射成 InvalidArgument/400（同
-// mdm-customer 的判据）。
+// ErrInvalidArgument 是入参本身不合法（不是数据库层面的冲突 / 缺失），
+// grpc / http 两层都经 ToStatus 把它映射成 InvalidArgument / 400。
 var ErrInvalidArgument = errors.New("参数不合法")
 
 type Service struct {
