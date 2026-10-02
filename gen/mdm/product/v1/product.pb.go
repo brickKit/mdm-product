@@ -768,12 +768,18 @@ func (x *GetRequest) GetId() string {
 
 type ListRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// ⚠️ 禁止深 Offset，强制 Cursor Pagination（决策 53）。
-	Cursor        string                 `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
-	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	StatusFilter  ProductStatus          `protobuf:"varint,3,opt,name=status_filter,json=statusFilter,proto3,enum=mdm.product.v1.ProductStatus" json:"status_filter,omitempty"`
+	// 没有 offset：只能按游标翻页，深分页在契约里就写不出来。cursor 是上一页
+	// 的 next_cursor，只对发出它的那组查询参数有效。
+	Cursor       string        `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	PageSize     int32         `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	StatusFilter ProductStatus `protobuf:"varint,3,opt,name=status_filter,json=statusFilter,proto3,enum=mdm.product.v1.ProductStatus" json:"status_filter,omitempty"`
+	// 不给时间范围时只查最近 90 天建档的产品。
 	CreatedAfter  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_after,json=createdAfter,proto3" json:"created_after,omitempty"`
 	CreatedBefore *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_before,json=createdBefore,proto3" json:"created_before,omitempty"`
+	// 关键字，匹配 sku 或 name，大小写不敏感，% 与 _ 按字面匹配。sku 或 name
+	// 以 q 开头的排在只是包含 q 的前面，同一档内按建档时间倒序。去掉首尾空白
+	// 后为空等于不传。时间窗口照常生效。
+	Q             string `protobuf:"bytes,6,opt,name=q,proto3" json:"q,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -841,6 +847,13 @@ func (x *ListRequest) GetCreatedBefore() *timestamppb.Timestamp {
 		return x.CreatedBefore
 	}
 	return nil
+}
+
+func (x *ListRequest) GetQ() string {
+	if x != nil {
+		return x.Q
+	}
+	return ""
 }
 
 type ListResponse struct {
@@ -1251,13 +1264,14 @@ const file_mdm_product_v1_product_proto_rawDesc = "" +
 	"\aproduct\x18\x01 \x01(\v2\x17.mdm.product.v1.ProductR\aproduct\"\x1c\n" +
 	"\n" +
 	"GetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x8a\x02\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x98\x02\n" +
 	"\vListRequest\x12\x16\n" +
 	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12B\n" +
 	"\rstatus_filter\x18\x03 \x01(\x0e2\x1d.mdm.product.v1.ProductStatusR\fstatusFilter\x12?\n" +
 	"\rcreated_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\x12A\n" +
-	"\x0ecreated_before\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore\"d\n" +
+	"\x0ecreated_before\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore\x12\f\n" +
+	"\x01q\x18\x06 \x01(\tR\x01q\"d\n" +
 	"\fListResponse\x123\n" +
 	"\bproducts\x18\x01 \x03(\v2\x17.mdm.product.v1.ProductR\bproducts\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +

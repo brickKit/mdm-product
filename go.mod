@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/brickKit/be-sdk-go v0.4.0
-	github.com/brickKit/mdm-product/gen/mdm/product v1.0.7
+	github.com/brickKit/mdm-product/gen/mdm/product v1.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.10.0
 	google.golang.org/grpc v1.83.2

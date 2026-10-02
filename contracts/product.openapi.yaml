@@ -21,10 +21,18 @@ paths:
       summary: List
       operationId: listProducts
       parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: |
+            关键字，匹配 sku 或 name，大小写不敏感，% 与 _ 按字面匹配。sku 或
+            name 以 q 开头的排在只是包含 q 的前面，同一档内按建档时间倒序。去掉
+            首尾空白后为空等于不传。时间窗口照常生效：要搜更早建档的产品，显式
+            给 created_after。
         - name: cursor
           in: query
           schema: { type: string }
-          description: 游标分页（决策 53），无 offset 参数——深分页在契约层面不可表达
+          description: 上一页返回的 next_cursor，原样回传；只对发出它的那组查询参数有效。没有 offset 参数。
         - name: page_size
           in: query
           schema: { type: integer }
@@ -37,7 +45,7 @@ paths:
         - name: created_before
           in: query
           schema: { type: string, format: date-time }
-          description: 不传时间范围时框架层自动注入最近 90 天（§11.4.1）
+          description: 不传时间范围时只查最近 90 天建档的产品。格式不是 RFC 3339 时回 400。
       responses:
         "200":
           description: OK
