@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 撤销 seed.sh 灌的数据。反查 command_idempotency 表拿真实行 id 再精确
-# 删除，不靠名字模糊匹配（同 mdm-customer 的既有样板）。
+# 删除，不靠名字模糊匹配。
 set -euo pipefail
 
 C_GRN=$'\033[32m'; C_OFF=$'\033[0m'
@@ -18,7 +18,7 @@ BEGIN
   FOR k IN SELECT unnest(ARRAY[
     'seed-product-1','seed-product-2','seed-product-3','seed-product-4','seed-product-5',
     'seed-product-6','seed-product-7','seed-product-8','seed-product-9','seed-product-10',
-    'seed-product-11','seed-product-12'
+    'seed-product-11','seed-product-12','seed-product-13','seed-product-14'
   ])
   LOOP
     SELECT result_id::BIGINT INTO pid FROM command_idempotency WHERE idempotency_key = k;
