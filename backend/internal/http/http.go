@@ -127,6 +127,7 @@ func listHandler(svc *service.Service) gin.HandlerFunc {
 func parseListInput(c *gin.Context) (repo.ListInput, error) {
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
 	in := repo.ListInput{
+		Q:            c.Query("q"),
 		Cursor:       c.Query("cursor"),
 		PageSize:     pageSize,
 		StatusFilter: c.Query("status_filter"),

@@ -76,3 +76,26 @@ func TestSetStatus_未指定状态时拒绝(t *testing.T) {
 		t.Fatalf("漏填状态不该改动产品，实际：%+v", got)
 	}
 }
+
+// TestList_gRPC把q传给列表：BFF 的产品搜索走 gRPC List，q 必须接到 repo。
+func TestList_gRPC把q传给列表(t *testing.T) {
+	srv, r, ea := testServer(t)
+	ctx := context.Background()
+	tok := key("gq")
+
+	hit, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: tok + "-hit", SKU: tok, Name: "按 sku 搜到的产品", BaseUOMID: ea})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: tok + "-miss", Name: "别的产品", BaseUOMID: ea}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := srv.List(ctx, &productv1.ListRequest{Q: tok})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Products) != 1 || res.Products[0].Id != hit.ID {
+		t.Fatalf("q=%s 期望只返回产品 %s，实际返回 %d 条", tok, hit.ID, len(res.Products))
+	}
+}

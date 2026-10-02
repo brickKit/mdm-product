@@ -118,7 +118,9 @@ func (s *server) Get(ctx context.Context, req *productv1.GetRequest) (*productv1
 }
 
 func (s *server) List(ctx context.Context, req *productv1.ListRequest) (*productv1.ListResponse, error) {
-	in := repo.ListInput{Cursor: req.Cursor, PageSize: int(req.PageSize), StatusFilter: fromProtoStatus(req.StatusFilter)}
+	in := repo.ListInput{
+		Q: req.Q, Cursor: req.Cursor, PageSize: int(req.PageSize), StatusFilter: fromProtoStatus(req.StatusFilter),
+	}
 	if req.CreatedAfter != nil {
 		in.CreatedAfter = req.CreatedAfter.AsTime()
 	}

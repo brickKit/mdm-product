@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	besdk "github.com/brickKit/be-sdk-go"
@@ -50,6 +51,7 @@ func (r *Repo) BatchGet(ctx context.Context, ids []string) (found []*Product, mi
 
 // ListInput 对应 ListRequest。没有 offset：列表只能按游标翻页。
 type ListInput struct {
+	Q             string // 关键字：匹配 sku 或 name，见 List
 	Cursor        string
 	PageSize      int
 	StatusFilter  string
@@ -74,14 +76,22 @@ func buildListQuery(in ListInput) besdk.Query {
 	})
 }
 
-// cursorKey 是游标里编码的排序键 (created_at, id)：keyset 分页，不是 offset。
+// cursorKey 是游标里编码的排序键 (match_rank, created_at, id)：keyset 分页，
+// 不是 offset。不带 q 时 Rank 恒为 0。
 type cursorKey struct {
+	Rank      int
 	CreatedAt time.Time
 	ID        int64
 }
 
-// List 分页列出产品，按 created_at、id 倒序。多取一条判断有没有下一页；
+// List 分页列出产品：先按 match_rank（带 q 时前缀匹配为 0、只是包含为 1；
+// 不带 q 时恒为 0），再按 created_at、id 倒序。多取一条判断有没有下一页；
 // 最后一页的 NextCursor 是空字符串。
+//
+// q 去掉首尾空白后为空就等于不过滤。匹配用 strpos / starts_with 而不是
+// LIKE：用户输入里的 % 与 _ 按字面匹配，不必转义。lower() 让大小写不敏感。
+// 默认时间窗口照常生效（与不带 q 的列表一致），要搜更早建档的产品就显式给
+// CreatedAfter。
 func (r *Repo) List(ctx context.Context, in ListInput) (*ListResult, error) {
 	q := buildListQuery(in)
 
@@ -97,20 +107,23 @@ func (r *Repo) List(ctx context.Context, in ListInput) (*ListResult, error) {
 	var out ListResult
 	err := besdk.WithTx(ctx, r.db, r.role, r.schema, func(tx *sql.Tx) error {
 		query, args := listSQL(in, q, ck)
-		products, err := queryProducts(ctx, tx, query, args...)
+		rows, err := queryRanked(ctx, tx, query, args...)
 		if err != nil {
 			return err
 		}
-		if len(products) > q.Limit {
-			last := products[q.Limit-1]
-			lastRawID, err := strconv.ParseInt(last.ID, 10, 64)
+		if len(rows) > q.Limit {
+			last := rows[q.Limit-1]
+			lastRawID, err := strconv.ParseInt(last.p.ID, 10, 64)
 			if err != nil {
 				return err
 			}
-			out.NextCursor = encodeCursor(cursorKey{CreatedAt: last.CreatedAt, ID: lastRawID})
-			products = products[:q.Limit]
+			out.NextCursor = encodeCursor(cursorKey{Rank: last.rank, CreatedAt: last.p.CreatedAt, ID: lastRawID})
+			rows = rows[:q.Limit]
 		}
-		out.Products = products
+		out.Products = make([]*Product, 0, len(rows))
+		for _, row := range rows {
+			out.Products = append(out.Products, row.p)
+		}
 		return nil
 	})
 	if err != nil {
@@ -119,7 +132,8 @@ func (r *Repo) List(ctx context.Context, in ListInput) (*ListResult, error) {
 	return &out, nil
 }
 
-// listSQL 拼 List 的查询：时间窗口、状态过滤、游标位置，多取一条。
+// listSQL 拼 List 的查询。内层算 match_rank 并做全部过滤（时间窗口、状态、
+// 关键字），外层按游标切页、排序、多取一条。
 func listSQL(in ListInput, q besdk.Query, ck *cursorKey) (string, []any) {
 	args := []any{q.From, q.To}
 	arg := func(v any) string {
@@ -127,32 +141,62 @@ func listSQL(in ListInput, q besdk.Query, ck *cursorKey) (string, []any) {
 		return fmt.Sprintf("$%d", len(args))
 	}
 
-	query := `SELECT ` + productColumns + ` FROM products WHERE created_at >= $1 AND created_at <= $2`
+	rank := "0"
+	where := "created_at >= $1 AND created_at <= $2"
 	if in.StatusFilter != "" {
-		query += " AND status = " + arg(in.StatusFilter)
+		where += " AND status = " + arg(in.StatusFilter)
 	}
+	if kw := strings.TrimSpace(in.Q); kw != "" {
+		k := "lower(" + arg(kw) + ")"
+		where += fmt.Sprintf(" AND (strpos(lower(sku), %s) > 0 OR strpos(lower(name), %s) > 0)", k, k)
+		rank = fmt.Sprintf("CASE WHEN starts_with(lower(sku), %s) OR starts_with(lower(name), %s) THEN 0 ELSE 1 END", k, k)
+	}
+
+	query := `SELECT ` + productColumns + `, match_rank FROM (
+			SELECT ` + productColumns + `, ` + rank + ` AS match_rank
+			FROM products
+			WHERE ` + where + `
+		) t`
 	if ck != nil {
-		c, i := arg(ck.CreatedAt), arg(ck.ID)
-		query += fmt.Sprintf(" AND (created_at, id) < (%s, %s)", c, i)
+		r, c, i := arg(ck.Rank), arg(ck.CreatedAt), arg(ck.ID)
+		query += fmt.Sprintf(" WHERE (match_rank > %s OR (match_rank = %s AND (created_at, id) < (%s, %s)))", r, r, c, i)
 	}
-	query += " ORDER BY created_at DESC, id DESC LIMIT " + arg(q.Limit+1)
+	query += " ORDER BY match_rank, created_at DESC, id DESC LIMIT " + arg(q.Limit+1)
 	return query, args
 }
 
-func queryProducts(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]*Product, error) {
+type rankedProduct struct {
+	p    *Product
+	rank int
+}
+
+// queryRanked 扫 listSQL 的结果：productColumns 之后多一列 match_rank。
+func queryRanked(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]rankedProduct, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查 products: %w", err)
 	}
 	defer rows.Close()
 
-	var out []*Product
+	var out []rankedProduct
 	for rows.Next() {
-		p, err := scanProductRow(rows)
+		var rank int
+		p, err := scanProductRow(rankScanner{rows, &rank})
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, p)
+		out = append(out, rankedProduct{p: p, rank: rank})
 	}
 	return out, rows.Err()
+}
+
+// rankScanner 让 scanProductRow 能扫"产品列 + 末尾一列 match_rank"的行：
+// 把 rank 的目标追加在产品列的目标之后。
+type rankScanner struct {
+	rows *sql.Rows
+	rank *int
+}
+
+func (s rankScanner) Scan(dest ...any) error {
+	return s.rows.Scan(append(dest, s.rank)...)
 }

@@ -123,3 +123,29 @@ func TestList_REST的时间参数格式不对返回400(t *testing.T) {
 		}
 	}
 }
+
+// TestList_REST把q传给列表：GET /products?q= 只返回 sku 或 name 含关键字的
+// 产品（排序与翻页规则由 repo 的测试守）。
+func TestList_REST把q传给列表(t *testing.T) {
+	r, db := testRepo(t)
+	ctx := context.Background()
+	svc := service.New(r, slog.Default())
+	tok := fmt.Sprintf("hq%x", time.Now().UnixNano())
+	ea := eaUOM(t, db)
+
+	hit, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: tok + "-hit", Name: tok + "产品", BaseUOMID: ea})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: tok + "-miss", Name: "别的产品", BaseUOMID: ea}); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := getList(t, svc, url.Values{"q": {tok}})
+	if code != http.StatusOK {
+		t.Fatalf("期望 200，实际 %d", code)
+	}
+	if len(body.Products) != 1 || body.Products[0].ID != hit.ID {
+		t.Fatalf("q=%s 期望只返回产品 %s，实际返回 %d 条", tok, hit.ID, len(body.Products))
+	}
+}
