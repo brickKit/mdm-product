@@ -23,6 +23,9 @@ var ErrCrossCategoryConversion = errors.New("换算的两个单位不属于同�
 // 算术在 SQL 里做，不在 Go 里做：换算因子与 rounding 都是 NUMERIC，Go 没有
 // 内建的精确十进制类型，浮点会把误差乘进订单数量与金额。
 func (r *Repo) ConvertQuantity(ctx context.Context, productID, qty, fromUOMID, toUOMID string) (string, error) {
+	if !isNumericID(productID) {
+		return "", fmt.Errorf("%w：产品 %q", ErrNotFound, productID)
+	}
 	var result string
 	err := besdk.WithTx(ctx, r.db, r.role, r.schema, func(tx *sql.Tx) error {
 		var exists bool
@@ -80,6 +83,9 @@ func (r *Repo) ConvertQuantity(ctx context.Context, productID, qty, fromUOMID, t
 
 // uomCategory 取单位的类别；单位不存在报 ErrNotFound（field 写进错误信息）。
 func uomCategory(ctx context.Context, tx *sql.Tx, field, id string) (string, error) {
+	if !isNumericID(id) {
+		return "", fmt.Errorf("%w: %s 不存在", ErrNotFound, field)
+	}
 	var category string
 	err := tx.QueryRowContext(ctx, `SELECT category FROM uoms WHERE id = $1`, id).Scan(&category)
 	if err == sql.ErrNoRows {

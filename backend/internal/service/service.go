@@ -11,7 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
+	"regexp"
+	"strings"
 
 	"github.com/brickKit/mdm-product/v2/backend/internal/repo"
 )
@@ -39,18 +40,16 @@ func validateTrackingType(s string) error {
 	return nil
 }
 
-// validateStandardCost 只做格式/正负号校验（合法非负小数），不代替
-// NUMERIC(18,2) 的精度校验——那是数据库自己的事（同 mdm-customer 的
-// validateCreditLimit 判据）。
+// validateStandardCost 只认非负的十进制字符串（decimalRe 去掉负号）；精度
+// （NUMERIC(18,2)）是数据库自己的事。
 func validateStandardCost(s string) error {
 	if s == "" {
 		return nil // repo 层留空时默认成 "0"
 	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return fmt.Errorf("%w: standard_cost 不是合法数字：%q", ErrInvalidArgument, s)
+	if !decimalRe.MatchString(s) {
+		return fmt.Errorf("%w: standard_cost 不是十进制数：%q", ErrInvalidArgument, s)
 	}
-	if f < 0 {
+	if strings.HasPrefix(s, "-") {
 		return fmt.Errorf("%w: standard_cost 不能为负数：%q", ErrInvalidArgument, s)
 	}
 	return nil
@@ -151,9 +150,17 @@ func (s *Service) List(ctx context.Context, in repo.ListInput) (*repo.ListResult
 	return s.repo.List(ctx, in)
 }
 
+// decimalRe 是契约里"十进制字符串"的写法：可带负号、可带小数部分，不接受
+// 科学计数法、NaN、千分位——这些 PostgreSQL 的 NUMERIC 部分能解析，但不是
+// 调用方之间约定的格式。
+var decimalRe = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
+
 func (s *Service) ConvertQuantity(ctx context.Context, productID, qty, fromUOMID, toUOMID string) (string, error) {
 	if qty == "" {
 		return "", fmt.Errorf("%w: qty 不能为空", ErrInvalidArgument)
+	}
+	if !decimalRe.MatchString(qty) {
+		return "", fmt.Errorf("%w: qty 不是十进制数：%q", ErrInvalidArgument, qty)
 	}
 	if fromUOMID == "" || toUOMID == "" {
 		return "", fmt.Errorf("%w: from_uom_id/to_uom_id 不能为空", ErrInvalidArgument)

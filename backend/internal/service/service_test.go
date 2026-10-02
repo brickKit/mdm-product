@@ -368,3 +368,46 @@ func TestGet与BatchGet_不是数字的id当成不存在(t *testing.T) {
 		t.Fatalf("期望命中 %s、缺失 abc，实际 found=%d missing=%v", p.ID, len(found), missing)
 	}
 }
+
+// TestConvertQuantity_不合法的数量与id映射成4xx：qty 不是十进制数是 400；
+// 产品 / 单位 id 不是数字，和不存在一样是 404。
+func TestConvertQuantity_不合法的数量与id映射成4xx(t *testing.T) {
+	svc, r, db := newTestService(t)
+	ctx := context.Background()
+	ea, box := uomID(t, db, "EA"), uomID(t, db, "BOX")
+	p, err := r.Create(ctx, repo.CreateInput{IdempotencyKey: runKey("svc-conv-bad"), Name: "换算入参测试", BaseUOMID: ea})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, qty := range []string{"两箱", "1e3", "1,5", "NaN"} {
+		if _, err := svc.ConvertQuantity(ctx, p.ID, qty, ea, box); codeOf(err) != codes.InvalidArgument {
+			t.Fatalf("qty=%q 应映射成 InvalidArgument，实际 %v（%v）", qty, codeOf(err), err)
+		}
+	}
+	for _, c := range [][3]string{{"abc", ea, box}, {p.ID, "EA", box}, {p.ID, ea, "BOX"}} {
+		if _, err := svc.ConvertQuantity(ctx, c[0], "1", c[1], c[2]); codeOf(err) != codes.NotFound {
+			t.Fatalf("product=%s from=%s to=%s 应映射成 NotFound，实际 %v（%v）", c[0], c[1], c[2], codeOf(err), err)
+		}
+	}
+	// 对照：合法的小数照常换算。
+	if got, err := svc.ConvertQuantity(ctx, p.ID, "24.0", ea, box); err != nil || got != "2" {
+		t.Fatalf("24.0 个换算成箱应是 2，实际 %q（%v）", got, err)
+	}
+}
+
+// TestCreate_standardCost不是十进制数时拒绝：NaN、科学计数法这类写法
+// strconv.ParseFloat 认、PostgreSQL 的 NUMERIC 也认（NaN 会原样落库），但不是
+// 金额字段约定的十进制字符串。
+func TestCreate_standardCost不是十进制数时拒绝(t *testing.T) {
+	svc, _, db := newTestService(t)
+	ctx := context.Background()
+	ea := uomID(t, db, "EA")
+	for _, cost := range []string{"NaN", "1e3", "Inf", "12,5"} {
+		_, err := svc.Create(ctx, repo.CreateInput{
+			IdempotencyKey: runKey("svc-cost-bad"), Name: "成本格式测试", BaseUOMID: ea, StandardCost: cost})
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("standard_cost=%q 应该拒绝并返回 ErrInvalidArgument，实际：%v", cost, err)
+		}
+	}
+}
