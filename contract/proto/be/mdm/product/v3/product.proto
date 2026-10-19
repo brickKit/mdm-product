@@ -1,0 +1,150 @@
+// The system surface of mdm/product: the source methods of protocol 02 (S1-S3), the eligibility query and batch
+// resolution of protocol 07, and unit conversion. Components call it with their service identity; it never filters
+// by a user. The user surface is REST (../../../../../openapi.yaml); the event payloads are ../../../../../events/.
+syntax = "proto3";
+
+package be.mdm.product.v3;
+
+option go_package = "github.com/brickKit/mdm-product/contract/v3/gen/go/be/mdm/product/v3;productv3";
+
+service SourceService {
+  rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
+  rpc Read(ReadRequest) returns (ReadResponse);
+}
+
+service ProductService {
+  // CheckEligibility: may a new document of the purpose reference the product in the legal entity now? Evidence for
+  // W (30 s, protocol 07).
+  rpc CheckEligibility(CheckEligibilityRequest) returns (CheckEligibilityResponse);
+  // Resolve: current, alias, tombstone or not found; at most 500 IDs a call.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Convert a quantity of the product between two units: the product's own conversion first, then the unit catalog's
+  // within one unit category; the result rounds to the target unit's decimals.
+  rpc Convert(ConvertRequest) returns (ConvertResponse);
+}
+
+enum Aggregate {
+  AGGREGATE_UNSPECIFIED = 0;
+  // mdm.product.changed.v1
+  AGGREGATE_PRODUCT = 1;
+  // mdm.product_category.changed.v1
+  AGGREGATE_CATEGORY = 2;
+}
+
+message Stamp {
+  string deployment = 1;
+  string instance = 2;
+  string epoch = 3;
+  // per partition of the stream mdm.product
+  repeated int64 positions = 4;
+}
+
+message Record {
+  string id = 1;
+  int64 version = 2;
+  bytes data = 3;
+}
+
+message SnapshotRequest {
+  Aggregate aggregate = 1;
+  string cursor = 2;
+  int32 limit = 3;
+}
+
+message SnapshotResponse {
+  repeated Record records = 1;
+  string next_cursor = 2;
+  Stamp stamp = 3;
+}
+
+message ReadRequest {
+  Aggregate aggregate = 1;
+  repeated string ids = 2;
+}
+
+enum ReadState {
+  READ_STATE_UNSPECIFIED = 0;
+  READ_STATE_EXISTS = 1;
+  READ_STATE_TOMBSTONE = 2;
+  READ_STATE_PURGED = 3;
+}
+
+message ReadResult {
+  string id = 1;
+  ReadState state = 2;
+  int64 version = 3;
+  bytes data = 4;
+}
+
+message ReadResponse {
+  repeated ReadResult results = 1;
+  Stamp stamp = 2;
+}
+
+enum Purpose {
+  PURPOSE_UNSPECIFIED = 0;
+  // sellable in the legal entity
+  PURPOSE_SELL = 1;
+  // purchasable in the legal entity
+  PURPOSE_PURCHASE = 2;
+}
+
+message CheckEligibilityRequest {
+  string product_id = 1;
+  string legal_entity_id = 2;
+  Purpose purpose = 3;
+}
+
+message CheckEligibilityResponse {
+  bool eligible = 1;
+  // eligible, not_found, product_suspended, product_retired, not_opened (the legal entity has no availability),
+  // not_sellable, not_purchasable
+  string reason = 2;
+  int64 product_version = 3;
+  // whether the product takes part in inventory (a service does not): a sales order asks for stock only then
+  bool stocked = 4;
+  string evaluated_at = 5;
+}
+
+message ResolveRequest {
+  repeated string ids = 1;
+}
+
+enum Resolution {
+  RESOLUTION_UNSPECIFIED = 0;
+  RESOLUTION_CURRENT = 1;
+  RESOLUTION_ALIAS = 2;
+  RESOLUTION_TOMBSTONE = 3;
+  RESOLUTION_NOT_FOUND = 4;
+}
+
+message Resolved {
+  string id = 1;
+  Resolution resolution = 2;
+  int64 version = 3;
+  bytes data = 4;
+  string survivor_id = 5;
+}
+
+message ResolveResponse {
+  repeated Resolved results = 1;
+}
+
+message ConvertRequest {
+  string product_id = 1;
+  // a decimal string
+  string quantity = 2;
+  // unit codes (UN/ECE Recommendation 20)
+  string from_unit = 3;
+  string to_unit = 4;
+}
+
+message ConvertResponse {
+  // rounded to the target unit's decimals
+  string quantity = 1;
+  // the factor used: one from_unit is factor to_unit
+  string factor = 2;
+  // product: the product's own conversion; catalog: the unit catalog's
+  string source = 3;
+  int64 product_version = 4;
+}

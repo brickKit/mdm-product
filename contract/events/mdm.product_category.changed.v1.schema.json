@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brickkit.dev/mdm-product/events/mdm.product_category.changed.v1.schema.json",
+  "title": "mdm.product_category.changed.v1",
+  "description": "A product category's complete current state; the record ID is its UUIDv7. Also the data of SourceService for AGGREGATE_CATEGORY.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "code", "name", "names", "parent_id", "active", "version", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "code": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9_.-]{0,47}$"},
+    "name": {"type": "string", "minLength": 1},
+    "names": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "parent_id": {"type": ["string", "null"], "format": "uuid"},
+    "active": {"type": "boolean"},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

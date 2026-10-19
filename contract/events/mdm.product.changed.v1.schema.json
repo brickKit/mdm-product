@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brickkit.dev/mdm-product/events/mdm.product.changed.v1.schema.json",
+  "title": "mdm.product.changed.v1",
+  "description": "A product's complete current state (a full-state event), with its own unit conversions and its availability by legal entity; the record ID is its UUIDv7, never reused. Also the data of SourceService for AGGREGATE_PRODUCT.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "code", "kind", "stocked", "name", "names", "category_id", "base_unit", "tracking", "has_movements", "conversions", "availability", "state", "version", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "code": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9_.-]{0,47}$", "description": "unique; never reused"},
+    "kind": {"enum": ["stock", "service", "non_stock"]},
+    "stocked": {"type": "boolean", "description": "takes part in inventory: true for stock only (a service order asks for no stock)"},
+    "name": {"type": "string", "minLength": 1},
+    "names": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "category_id": {"type": ["string", "null"], "format": "uuid"},
+    "base_unit": {"type": "string", "description": "a unit code of the catalog (UN/ECE Recommendation 20)"},
+    "tracking": {"enum": ["none", "batch", "serial"]},
+    "has_movements": {"type": "boolean", "description": "inventory has recorded movements of it: tracking and base unit no longer change (a new product and a migration instead)"},
+    "conversions": {
+      "type": "array",
+      "description": "the product's own conversions; they come before the catalog's",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit", "factor"],
+        "properties": {
+          "unit": {"type": "string"},
+          "factor": {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$", "description": "one unit is factor base units"}
+        }
+      }
+    },
+    "availability": {
+      "type": "array",
+      "description": "by legal entity: whether new sales and purchase documents may use it",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["legal_entity_id", "sellable", "purchasable"],
+        "properties": {
+          "legal_entity_id": {"type": "string", "format": "uuid"},
+          "sellable": {"type": "boolean"},
+          "purchasable": {"type": "boolean"}
+        }
+      }
+    },
+    "state": {"enum": ["active", "suspended", "retired"]},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

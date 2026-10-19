@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: mdm/product user surface
+  version: 3.0.0
+  description: >-
+    Products, categories, the unit catalog and product conversions, and availability by legal entity, for people and
+    the front end. Every route needs a platform access token and the operation in x-operation; what the caller may not
+    see answers 404. Errors are application/problem+json with a reason. Lists page by cursor only (protocol 14).
+    Barcodes and images are in the contract but not in step 6: they answer CAPABILITY_UNSUPPORTED (D75).
+paths:
+  /api/product/products:
+    get:
+      operationId: listProducts
+      x-operation: mdm.product.read
+      parameters:
+        - {name: state, in: query, schema: {enum: [active, suspended, retired]}}
+        - {name: kind, in: query, schema: {enum: [stock, service, non_stock]}}
+        - {name: category_id, in: query, schema: {type: string}}
+        - {name: q, in: query, schema: {type: string}, description: keyword over code and names}
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: one page, by code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products, next_cursor]
+                properties:
+                  products: {type: array, items: {$ref: '#/components/schemas/Product'}}
+                  next_cursor: {type: string}
+        default: {$ref: '#/components/responses/problem'}
+    post:
+      operationId: createProduct
+      x-operation: mdm.product.edit
+      summary: Create a product; the same code with the same content again returns it (409 CODE_TAKEN otherwise)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, kind, name, base_unit]
+              properties:
+                code: {type: string}
+                kind: {enum: [stock, service, non_stock]}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                category_id: {type: [string, 'null']}
+                base_unit: {type: string}
+                tracking: {enum: [none, batch, serial], default: none}
+                conversions: {type: array, items: {type: object, required: [unit, factor], properties: {unit: {type: string}, factor: {type: string}}}}
+      responses:
+        '200': {description: the product, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/products/{id}:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: getProduct
+      x-operation: mdm.product.read
+      responses:
+        '200': {description: the product, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+        default: {$ref: '#/components/responses/problem'}
+    patch:
+      operationId: updateProduct
+      x-operation: mdm.product.edit
+      summary: Change names, category, conversions, tracking or base unit (the last two refused once inventory has movements)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version: {type: integer}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                category_id: {type: [string, 'null']}
+                base_unit: {type: string}
+                tracking: {enum: [none, batch, serial]}
+                conversions: {type: array, items: {type: object}}
+      responses:
+        '200': {description: the product, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/products/{id}/state:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: changeProductState
+      x-operation: mdm.product.edit
+      summary: Suspend, resume or retire (protocol 07); a retired product stays retired
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties: {state: {enum: [active, suspended, retired]}, version: {type: integer}}
+      responses:
+        '200': {description: the product, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/products/{id}/legal-entities/{legal_entity_id}:
+    parameters: [{$ref: '#/components/parameters/id'}, {name: legal_entity_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    put:
+      operationId: putAvailability
+      x-operation: mdm.product.edit
+      summary: Open the product for sale or purchase in a legal entity (mdm/org must say the legal entity is active)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sellable, purchasable]
+              properties: {sellable: {type: boolean}, purchasable: {type: boolean}}
+      responses:
+        '200': {description: the product, content: {application/json: {schema: {$ref: '#/components/schemas/Product'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/products/{id}/convert:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: convertQuantity
+      x-operation: mdm.product.read
+      summary: A quantity of the product in another unit (the same answer as ProductService.Convert)
+      parameters:
+        - {name: quantity, in: query, required: true, schema: {type: string}}
+        - {name: from_unit, in: query, required: true, schema: {type: string}}
+        - {name: to_unit, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: the converted quantity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [quantity, factor, source]
+                properties: {quantity: {type: string}, factor: {type: string}, source: {enum: [product, catalog]}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/eligibility:
+    get:
+      operationId: productEligibility
+      x-operation: mdm.product.read
+      summary: May a new document of the purpose reference the product in the legal entity now
+      parameters:
+        - {name: product_id, in: query, required: true, schema: {type: string}}
+        - {name: legal_entity_id, in: query, required: true, schema: {type: string}}
+        - {name: purpose, in: query, required: true, schema: {enum: [sell, purchase]}}
+      responses:
+        '200':
+          description: the answer
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [eligible, reason, stocked]
+                properties:
+                  eligible: {type: boolean}
+                  reason: {type: string}
+                  product_version: {type: integer}
+                  stocked: {type: boolean}
+                  evaluated_at: {type: string, format: date-time}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/units:
+    get:
+      operationId: listUnits
+      x-operation: mdm.product.read
+      summary: The unit catalog (it comes with the component)
+      responses:
+        '200':
+          description: every unit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [units]
+                properties:
+                  units:
+                    type: array
+                    items:
+                      type: object
+                      required: [code, category, factor, decimals, name, names]
+                      properties:
+                        code: {type: string}
+                        category: {type: string}
+                        factor: {type: string, description: 'in the category''s base unit'}
+                        decimals: {type: integer}
+                        name: {type: string}
+                        names: {type: object, additionalProperties: {type: string}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/categories:
+    get:
+      operationId: listCategories
+      x-operation: mdm.product.read
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: one page, by code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [categories, next_cursor]
+                properties:
+                  categories: {type: array, items: {$ref: '#/components/schemas/Category'}}
+                  next_cursor: {type: string}
+        default: {$ref: '#/components/responses/problem'}
+    post:
+      operationId: createCategory
+      x-operation: mdm.product_category.manage
+      summary: Create a category; the same code with the same content again returns it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, name]
+              properties:
+                code: {type: string}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                parent_id: {type: [string, 'null']}
+      responses:
+        '200': {description: the category, content: {application/json: {schema: {$ref: '#/components/schemas/Category'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/categories/{id}:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    patch:
+      operationId: updateCategory
+      x-operation: mdm.product_category.manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version: {type: integer}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                active: {type: boolean}
+      responses:
+        '200': {description: the category, content: {application/json: {schema: {$ref: '#/components/schemas/Category'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/product/products/{id}/barcodes:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get: {operationId: listBarcodes, x-operation: mdm.product.read, summary: 'Not in step 6: CAPABILITY_UNSUPPORTED', responses: {default: {$ref: '#/components/responses/problem'}}}
+    post: {operationId: addBarcode, x-operation: mdm.product.edit, summary: 'Not in step 6: CAPABILITY_UNSUPPORTED', responses: {default: {$ref: '#/components/responses/problem'}}}
+  /api/product/products/{id}/images:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post: {operationId: addImage, x-operation: mdm.product.edit, summary: 'Needs the attachments component; not in step 6: CAPABILITY_UNSUPPORTED', responses: {default: {$ref: '#/components/responses/problem'}}}
+components:
+  parameters:
+    id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    cursor: {name: cursor, in: query, schema: {type: string}}
+    limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+  responses:
+    problem:
+      description: an error (application/problem+json with reason)
+      content:
+        application/problem+json:
+          schema: {type: object, required: [reason], properties: {reason: {type: string}, detail: {type: string}}}
+  schemas:
+    Product: {$ref: 'events/mdm.product.changed.v1.schema.json'}
+    Category: {$ref: 'events/mdm.product_category.changed.v1.schema.json'}
