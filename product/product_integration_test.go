@@ -4,7 +4,7 @@ package product
 
 // The product component against PostgreSQL and the bus over its real surfaces (L2). mdm/org is a stand-in that speaks
 // its published contract over mTLS. Needs BE_SDK_TEST_PG_ADMIN and BE_SDK_TEST_NATS_URL, as be-sdk-go's integration
-// tests. The member listens on 18082 (user) and 9092 (system); the stand-in on 19094.
+// tests. The member listens on 28082 (user) and 9092 (system); the stand-in on 19094.
 // Run: go test -tags integration ./product/
 
 import (
@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	itPort   = "18082"
+	itPort   = "28082"
 	itBase   = "http://localhost:" + itPort
 	itSystem = "localhost:9092"
 	itOrg    = "localhost:19094"
@@ -109,6 +109,7 @@ func TestProductEndToEnd(t *testing.T) {
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Stop()
 
+	portFree(t, itPort, itSystem)
 	env := w.Env(t, ID)
 	for k, v := range map[string]string{"COMPONENT_ID": ID, "COMPONENT_VERSION": Version, "PORT": itPort,
 		"STOP_DRAIN_DELAY": "50ms", "PG_HOST": u.Hostname(), "PG_PORT": u.Port(), "PG_DATABASE": strings.TrimPrefix(u.Path, "/"),
@@ -172,6 +173,15 @@ func TestProductEndToEnd(t *testing.T) {
 	assert.Equal(t, false, svc["stocked"])
 	code, _ = alice.do("PATCH", "/api/product/products/"+svc["id"].(string), map[string]any{"tracking": "serial"})
 	assert.Equal(t, 400, code, "a service is never tracked by batch or serial")
+	// the same content again makes no new version, for a product with no conversions and no availability as well
+	svcID := svc["id"].(string)
+	code, same := alice.do("PATCH", "/api/product/products/"+svcID, map[string]any{"name": "上门安装"})
+	require.Equal(t, 200, code, same)
+	assert.EqualValues(t, 1, same["version"], "nothing changed: no new version")
+	_, open1 := alice.do("PUT", "/api/product/products/"+svcID+"/legal-entities/"+leB, map[string]any{"sellable": true, "purchasable": false})
+	_, open2 := alice.do("PUT", "/api/product/products/"+svcID+"/legal-entities/"+leB, map[string]any{"sellable": true, "purchasable": false})
+	assert.EqualValues(t, 2, open1["version"])
+	assert.EqualValues(t, 2, open2["version"], "the same availability again: no new version")
 
 	// the story: once inventory has movements, the tracking policy no longer changes (the flag comes from inventory's
 	// events in step 7; here it is set the way that consumer will)
@@ -227,4 +237,17 @@ func TestProductEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(read.Results[0].Data), `"has_movements":true`)
 	assert.Len(t, read.Stamp.Positions, 4)
+}
+
+// portFree fails at once when a port the member needs is taken: a running cell (host ports 18xxx) or another member
+// would answer in its place, and the test would assert against another process.
+func portFree(t *testing.T, addrs ...string) {
+	for _, a := range addrs {
+		if !strings.Contains(a, ":") {
+			a = "localhost:" + a
+		}
+		ln, err := net.Listen("tcp", a)
+		require.NoError(t, err, "port %s is taken: is a cell or another member running?", a)
+		_ = ln.Close()
+	}
 }

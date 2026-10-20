@@ -14,6 +14,7 @@
 | `product/records.go` | 记录的类型与读取（产品连同换算与开通一起读）、事件 |
 | `product/source.go` | 系统面：来源方法、资格、解析、换算 |
 | `product/migrations/` | 表与单位目录 |
+| `cmd/seed/` | 种子：角色与授予、分类、产品与包装层级、各法人的开通（`make seed`） |
 | `contract/` | 本组件发布的契约，单独的模块：`contract/proto/`、`contract/events/`、`contract/openapi.yaml` |
 
 | 想改 | 从这里开始 | 然后 |
@@ -38,6 +39,7 @@
 
 - 不要用浮点做换算：系数与数量都是十进制（协议 14），`apd` 的精度远超系数的 12 位小数。
 - 产品连同子表一起读时不能直接 `FOR UPDATE`（聚合）：先锁行，再读（`getProduct`）。
+- 比较“有没有变化”按 JSON：复制切片用 `slices.Clone`，空列表要保持为空列表；复制成 `nil` 会编码成 `null`，同样的内容也被当成变化、多出一个版本（3.0.2 修过）。
 
 ## 改代码前自查
 

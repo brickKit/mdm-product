@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/brickKit/be-sdk-go/v3/audit"
@@ -365,8 +366,9 @@ func (m *Module) changeProduct(c *httpx.Context, version *int64, apply func(ctx 
 			return errVersion.New(fmt.Sprintf("the product is at version %d", cur.Version))
 		}
 		next := cur
-		next.Conversions = append([]Conversion(nil), cur.Conversions...)
-		next.Availability = append([]Availability(nil), cur.Availability...)
+		// copies that keep an empty list empty (not nil): a nil one encodes as null and would read as a change
+		next.Conversions = slices.Clone(cur.Conversions)
+		next.Availability = slices.Clone(cur.Availability)
 		if err := apply(ctx, tx, &next); err != nil {
 			return err
 		}

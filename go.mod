@@ -3,7 +3,7 @@ module github.com/brickKit/mdm-product/v3
 go 1.27.0
 
 require (
-	github.com/brickKit/be-sdk-go/v3 v3.0.0-alpha.24
+	github.com/brickKit/be-sdk-go/v3 v3.0.0-alpha.25
 	github.com/brickKit/mdm-org/contract/v3 v3.0.0-alpha.1
 	github.com/brickKit/mdm-product/contract/v3 v3.0.0-alpha.1
 	github.com/cockroachdb/apd/v3 v3.2.3
