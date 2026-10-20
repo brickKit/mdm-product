@@ -1,5 +1,5 @@
 // Command seed fills a running mdm/product with the seed data for people (be-assembly-standard's seed and test data
-// conventions): five categories; 60 products (stock with box conversions and batch or serial tracking, services,
+// conventions): five categories; 48 products (stock with box conversions and batch or serial tracking, services,
 // non-stock items; enough to page through) opened for sale and purchase in mdm/org's seeded legal entities CN01 and
 // ES01; and the negative data the eligibility answers need: a suspended and a retired product, products not sellable
 // in ES01 or not opened there at all. Codes are the fixed idempotency keys, so a second run creates nothing; the legal
