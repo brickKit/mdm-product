@@ -134,16 +134,20 @@ func main() {
 	for i, su := range []string{"包装纸箱", "封箱胶带", "打印纸", "标签纸"} {
 		items = append(items, item{fmt.Sprintf("SUP-%02d", i), su, "non_stock", "SUPPLY", "C62", "none", ""})
 	}
-	ids := map[string]string{}
+	ids, states := map[string]string{}, map[string]string{}
 	for _, it := range items {
 		body := map[string]any{"code": it.code, "kind": it.kind, "name": prefix + it.name, "base_unit": it.unit,
 			"category_id": cats[it.cat], "tracking": it.tracking}
 		if it.box != "" {
 			body["conversions"] = []map[string]any{{"unit": "BX", "factor": it.box}}
 		}
-		ids[it.code] = c.must("POST", "/api/product/products", body)["id"].(string)
+		out := c.must("POST", "/api/product/products", body)
+		ids[it.code], states[it.code] = out["id"].(string), out["state"].(string)
 	}
 	open := func(code, le string, sell, buy bool) {
+		if states[code] != "active" { // suspended or retired by an earlier run, after its availabilities were set
+			return
+		}
 		c.must("PUT", "/api/product/products/"+ids[code]+"/legal-entities/"+le, map[string]any{"sellable": sell, "purchasable": buy})
 	}
 	n := 0

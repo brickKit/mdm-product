@@ -4,7 +4,7 @@ kind: Component
 metadata:
   id: mdm/product
   name: Product
-  version: 3.0.0
+  version: 3.0.1
   description: "Products (stock, service, non-stock), categories, the unit catalog and product conversions, tracking policy, availability for sale and purchase by legal entity; eligibility, batch resolution and unit conversion; full-state events and the source methods of protocol 02"
   repository: https://github.com/brickKit/mdm-product
 
