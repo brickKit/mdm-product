@@ -1,6 +1,6 @@
 # mdm/product
 
-产品主数据组件的代码。先读 `BRICKKIT.md`；依据是装配项目 be-assembly-standard 的边界卡 `docs/zh/07-components/mdm.md`（`mdm/product`）、协议 02（来源）、协议 07（资格与解析）、协议 14（金额、数量与单位、列表）。
+产品主数据组件的代码。用法与边界在 `BRICKKIT.md`，为什么这样设计（术语、数据、状态与规则、未决问题）在 [docs/design.md](docs/design.md)；跨组件的规则在装配项目 be-assembly-standard 的协议 02（来源）、协议 07（资格与解析）、协议 14（金额、数量与单位、列表）。
 
 ## 代码地图
 
@@ -16,17 +16,20 @@
 | `product/migrations/` | 表与单位目录 |
 | `cmd/seed/` | 种子：角色与授予、分类、产品与包装层级、各法人的开通（`make seed`） |
 | `contract/` | 本组件发布的契约，单独的模块：`contract/proto/`、`contract/events/`、`contract/openapi.yaml` |
+| `docs/design.md` | 设计：术语、表、状态与规则、命令、事件、实现状态、未决问题 |
 
 | 想改 | 从这里开始 | 然后 |
 | --- | --- | --- |
 | 换算的规则 | `units.go` 的 `convert` | 集成测试的换算一段 |
 | 有流水之后的锁定 | `module.go` 的 `productIn.apply` | 第 7 步：订阅库存的流水事件设置 `has_movements` |
 | 加一个单位 | `migrations` 的单位目录（新迁移） | 协议 14 的单位规则 |
+| 资格的规则 | `source.go` 的资格（`eligibility`） | 集成测试的资格一段 |
+| 加字段、加接口、改事件 | 装配项目 be-assembly-standard 规范里的“改动配方” | `docs/design.md` 的数据与命令 |
 
 ## 构建与测试
 
-- `go test ./...`：清单的 `configSchema`、OpenAPI 与路由、事件载荷、合并安全。
-- `go test -tags integration ./product/`：真实的 PostgreSQL 与消息系统（`BE_SDK_TEST_PG_ADMIN`、`BE_SDK_TEST_NATS_URL`），be-sdk-go 的 `sectest` 测试部署；`mdm/org` 是按契约写的替身。
+- `go test ./...`（`make test`）：清单的 `configSchema` 与 `events`、OpenAPI 与路由、事件载荷、合并安全。
+- `go test -tags integration ./product/`（`make test-integration`）：真实的 PostgreSQL 与消息系统，例如 `BE_SDK_TEST_PG_ADMIN=postgres://postgres:<口令>@localhost:5432/brickkit_test_db`（装配项目 `make up` 的 `be-postgres`，口令是 `.env` 的 `POSTGRES_PASSWORD`）与 `BE_SDK_TEST_NATS_URL=nats://localhost:4222`；be-sdk-go 的 `sectest` 是测试部署；`mdm/org` 是按契约写的替身。
 - `brickkit lint`
 
 ## 设计取舍

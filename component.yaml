@@ -4,13 +4,18 @@ kind: Component
 metadata:
   id: mdm/product
   name: Product
-  version: 3.0.3
+  version: 3.0.4
   description: "Products (stock, service, non-stock), categories, the unit catalog and product conversions, tracking policy, availability for sale and purchase by legal entity; eligibility, batch resolution and unit conversion; full-state events and the source methods of protocol 02"
   repository: https://github.com/brickKit/mdm-product
 
 dependencies:
   components:
-    - mdm/org@3.0.2
+    - mdm/org@3.0.3
+
+events:
+  publishes:
+    - mdm.product.changed.v1
+    - mdm.product_category.changed.v1
 
 deployment:
   type: container
