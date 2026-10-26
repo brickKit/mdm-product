@@ -19,7 +19,7 @@ import (
 // Identity of the component.
 const (
 	ID       = "mdm/product"
-	Version  = "3.0.7"
+	Version  = "3.0.8"
 	GRPCPort = 9092
 	// Org is the component the legal entities belong to: a required dependency.
 	Org = "mdm/org"
