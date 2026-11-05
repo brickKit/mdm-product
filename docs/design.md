@@ -75,6 +75,8 @@
 
 ## 实现状态
 
+3.0.20（底层先行第 4 项 T8 的级联）：be-sdk-go alpha.81（恢复模式、补发与消费者进度）；流的补发（`be.source.v1.ResendService`，操作 `mdm.product.system.resend`，登记在本组件的 system 资源下，部署内任何组件可调用，线协议 P6.38）；清单声明 `RECOVERY_PHASE`。
+
 实验第 6 步的范围：条码与图片在契约里，调用答“能力不支持”（`CAPABILITY_UNSUPPORTED`，D75）；“已有流水”的标记要等库存（第 7 步）接上，现在只有本组件的拒绝逻辑。
 
 ## 部署与替换
