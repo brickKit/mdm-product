@@ -237,6 +237,8 @@ func TestProductEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(read.Results[0].Data), `"has_movements":true`)
 	assert.Len(t, read.Stamp.Positions, 4)
+
+	t.Run("recovery checks", func(t *testing.T) { checksStory(t, w, admin, Products, tea["id"].(string)) })
 }
 
 // portFree fails at once when a port the member needs is taken: a running cell (host ports 18xxx) or another member
