@@ -7,6 +7,7 @@
 | 位置 | 内容 |
 | --- | --- |
 | `product/definition.go` | 组件定义：身份、依赖 mdm/org、流与事件类型、资源与操作、W |
+| `product/checks.go` | 整套恢复的核对（线协议第 14 章，SDK 的 `CheckService`，只许恢复工具调用）：本组件审计过的对象按版本答“还在不在”（`Presence`） |
 | `product/module.go` | 路由与系统面的注册；产品的新建、修改（追踪政策与基本单位的规则在 `productIn.apply`）、状态、按法人开通 |
 | `product/units.go` | 单位目录、换算（`convert`）、十进制辅助 |
 | `product/categories.go` | 分类 |
