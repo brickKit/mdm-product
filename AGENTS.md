@@ -4,34 +4,41 @@
 
 ## 代码地图
 
-| 位置 | 内容 |
+代码按业务模块分层。**先读这一节，再进目录**：每个代码目录都有自己的 `AGENTS.md`（同目录的 `CLAUDE.md` 让 Claude Code 读这个目录的文件时自动带上它），写这一层负责什么、不负责什么、每个文件、依赖谁、测在哪。
+
+| 目录 | 是什么 |
 | --- | --- |
-| `product/definition.go` | 组件定义：身份、依赖 mdm/org、流与事件类型、资源与操作、W |
-| `product/checks.go` | 整套恢复的核对（线协议第 14 章，SDK 的 `CheckService`，只许恢复工具调用）：本组件审计过的对象按版本答“还在不在”（`Presence`） |
-| `product/module.go` | 路由与系统面的注册；产品的新建、修改（追踪政策与基本单位的规则在 `productIn.apply`）、状态、按法人开通 |
-| `product/units.go` | 单位目录、换算（`convert`）、十进制辅助 |
-| `product/categories.go` | 分类 |
-| `product/lists.go` | 产品与分类的列表 |
-| `product/records.go` | 记录的类型与读取（产品连同换算与开通一起读）、事件 |
-| `product/source.go` | 系统面：来源方法、资格、解析、换算 |
+| [`product/`](product/AGENTS.md) | 入口：组件定义与组装（路由、系统面、恢复核对都在这里登记，转给业务模块）；不写业务。`main.go` 与外壳只引用它 |
+| [`internal/`](internal/AGENTS.md) | 业务：下面的模块各一个包；模块之间的依赖表在它的 `AGENTS.md` |
+| [`itest/`](itest/AGENTS.md) | 集成测试，按业务流程分文件；它的 `AGENTS.md` 是测试索引 |
 | `product/migrations/` | 表与单位目录 |
 | `cmd/seed/` | 种子：角色与授予、分类、产品与包装层级、各法人的开通（`make seed`） |
 | `contract/` | 本组件发布的契约，单独的模块：`contract/proto/`、`contract/events/`、`contract/openapi.yaml` |
 | `docs/design.md` | 设计：术语、表、状态与规则、命令、事件、实现状态、未决问题 |
 
+业务模块（`internal/` 下）：
+
+| 模块 | 负责 | 拥有的表 |
+| --- | --- | --- |
+| [`products`](internal/products/AGENTS.md) | 产品：新建、修改（追踪政策与基本单位的规则）、状态、按法人开通、列表；资格 | `product`、`product_conversion`、`product_availability` |
+| [`categories`](internal/categories/AGENTS.md) | 分类 | `category` |
+| [`units`](internal/units/AGENTS.md) | 单位目录与换算 | `unit` |
+| [`source`](internal/source/AGENTS.md) | 系统面：来源方法、资格、解析、换算 | — |
+
+共用的：[`core`](internal/core/AGENTS.md)（名字与资源定义、校验、十进制辅助、审计与事件的写法、记录的类型与读取、本版不做的路由）。
+
 | 想改 | 从这里开始 | 然后 |
 | --- | --- | --- |
-| 换算的规则 | `units.go` 的 `convert` | 集成测试的换算一段 |
-| 有流水之后的锁定 | `module.go` 的 `productIn.apply` | 第 7 步：订阅库存的流水事件设置 `has_movements` |
+| 换算的规则 | `internal/units` 的 `Convert` | `itest/units_integration_test.go` |
+| 有流水之后的锁定 | `internal/products` 的 `productIn.apply` | 第 7 步：订阅库存的流水事件设置 `has_movements`；`itest/products_integration_test.go` 的 `movements` |
 | 加一个单位 | `migrations` 的单位目录（新迁移） | 协议 14 的单位规则 |
-| 资格的规则 | `source.go` 的资格（`eligibility`） | 集成测试的资格一段 |
+| 资格的规则 | `internal/products` 的 `EligibilityOf` | `itest/availability_integration_test.go` |
 | 加字段、加接口、改事件 | 装配项目 be-assembly-standard 规范里的“改动配方” | `docs/design.md` 的数据与命令 |
 
 ## 构建与测试
 
 - `go test ./...`（`make test`）：清单的 `configSchema` 与 `events`、OpenAPI 与路由、事件载荷、合并安全。
-- `go test -tags integration ./product/`（`make test-integration`）：真实的 PostgreSQL 与消息系统，例如 `BE_SDK_TEST_PG_ADMIN=postgres://postgres:<口令>@localhost:5432/brickkit_test_db`（口令是装配项目 `.env` 的 `POSTGRES_PASSWORD`）与 `BE_SDK_TEST_NATS_URL=nats://localhost:4222`；be-sdk-go 的 `sectest` 是测试部署；`mdm/org` 是按契约写的替身。
-- 集成测试的前提：装配项目里 `make up` 起了 `be-postgres` 与 `be-nats`；`be-postgres` 里有库 `brickkit_test_db`（没有就 `docker exec be-postgres createdb -U postgres brickkit_test_db`；`make test-db-init` 的组件清单还是旧的，不认这个组件）；测试每次开始时删掉再建自己的 schema `mdm_product_it`，跑完留着；端口 28082、9092 与替身 `mdm/org` 的 19094 要空着，被占时测试直接失败。
+- `make test-integration`（`go test -tags integration ./itest/`）：真实的 PostgreSQL 与消息系统；每个文件测哪条流程、要什么前提，在 [itest/AGENTS.md](itest/AGENTS.md)。
 - `brickkit lint`
 
 ## 设计取舍
@@ -43,7 +50,7 @@
 ## 易错点
 
 - 不要用浮点做换算：系数与数量都是十进制（协议 14），`apd` 的精度远超系数的 12 位小数。
-- 产品连同子表一起读时不能直接 `FOR UPDATE`（聚合）：先锁行，再读（`getProduct`）。
+- 产品连同子表一起读时不能直接 `FOR UPDATE`（聚合）：先锁行，再读（`core.GetProduct`）。
 - 比较“有没有变化”按 JSON：复制切片用 `slices.Clone`，空列表要保持为空列表；复制成 `nil` 会编码成 `null`，同样的内容也被当成变化、多出一个版本（3.0.2 修过）。
 
 ## 改代码前自查

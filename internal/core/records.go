@@ -1,4 +1,4 @@
-package product
+package core
 
 import (
 	"context"
@@ -59,17 +59,17 @@ type Category struct {
 // productCols reads a product with its conversions and availability in one row (ordered, so the same state always
 // gives the same JSON).
 const (
-	productCols = `p.id::text, p.code, p.kind, p.name, p.names, p.category_id::text, p.base_unit, p.tracking,
+	ProductCols = `p.id::text, p.code, p.kind, p.name, p.names, p.category_id::text, p.base_unit, p.tracking,
 		p.has_movements, p.state, p.version, p.updated_at,
 		COALESCE((SELECT jsonb_agg(jsonb_build_object('unit', c.unit, 'factor', trim_scale(c.factor)::text) ORDER BY c.unit)
 			FROM product_conversion c WHERE c.product_id = p.id), '[]'::jsonb),
 		COALESCE((SELECT jsonb_agg(jsonb_build_object('legal_entity_id', a.legal_entity_id::text, 'sellable', a.sellable,
 			'purchasable', a.purchasable) ORDER BY a.legal_entity_id) FROM product_availability a WHERE a.product_id = p.id),
 			'[]'::jsonb)`
-	categoryCols = `id::text, code, name, names, parent_id::text, active, version, updated_at`
+	CategoryCols = `id::text, code, name, names, parent_id::text, active, version, updated_at`
 )
 
-func scanProduct(row pgx.Row) (Product, error) {
+func ScanProduct(row pgx.Row) (Product, error) {
 	var p Product
 	var names, conv, avail []byte
 	var at time.Time
@@ -83,7 +83,7 @@ func scanProduct(row pgx.Row) (Product, error) {
 		json.Unmarshal(avail, &p.Availability))
 }
 
-func scanCategory(row pgx.Row) (Category, error) {
+func ScanCategory(row pgx.Row) (Category, error) {
 	var c Category
 	var names []byte
 	var at time.Time
@@ -95,36 +95,36 @@ func scanCategory(row pgx.Row) (Category, error) {
 }
 
 // errNone is a lookup that found no row.
-var errNone = errors.New("no such record")
+var ErrNone = errors.New("no such record")
 
 func one[T any](row pgx.Row, scan func(pgx.Row) (T, error)) (T, error) {
 	v, err := scan(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return v, errNone
+		return v, ErrNone
 	}
 	return v, err
 }
 
-func getProduct(ctx context.Context, tx db.Tx, id string, lock bool) (Product, error) {
+func GetProduct(ctx context.Context, tx db.Tx, id string, lock bool) (Product, error) {
 	if lock { // the row lock first: the aggregate columns cannot take FOR UPDATE
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM product WHERE id = $1::uuid FOR UPDATE`, id); err != nil {
 			return Product{}, err
 		}
 	}
-	return one(tx.QueryRow(ctx, `SELECT `+productCols+` FROM product p WHERE p.id = $1::uuid`, id), scanProduct)
+	return one(tx.QueryRow(ctx, `SELECT `+ProductCols+` FROM product p WHERE p.id = $1::uuid`, id), ScanProduct)
 }
 
-func getCategory(ctx context.Context, tx db.Tx, id string, lock bool) (Category, error) {
-	q := `SELECT ` + categoryCols + ` FROM category WHERE id = $1::uuid`
+func GetCategory(ctx context.Context, tx db.Tx, id string, lock bool) (Category, error) {
+	q := `SELECT ` + CategoryCols + ` FROM category WHERE id = $1::uuid`
 	if lock {
 		q += ` FOR UPDATE`
 	}
-	return one(tx.QueryRow(ctx, q, id), scanCategory)
+	return one(tx.QueryRow(ctx, q, id), ScanCategory)
 }
 
-// emit writes the record's full-state event into the outbox, in the transaction that changed it (protocol 02, S2).
-func (m *Module) emit(ctx context.Context, tx db.Tx, typ, id string, version int64, data any) error {
-	_, err := m.rt.Events.Emit(ctx, tx, Stream, events.Event{Type: typ, RecordID: id, Version: version,
+// Emit writes the record's full-state event into the outbox, in the transaction that changed it (protocol 02, S2).
+func Emit(m *Base, ctx context.Context, tx db.Tx, typ, id string, version int64, data any) error {
+	_, err := m.RT.Events.Emit(ctx, tx, Stream, events.Event{Type: typ, RecordID: id, Version: version,
 		Projection: events.Full, Data: data})
 	return err
 }

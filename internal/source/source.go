@@ -1,17 +1,17 @@
-package product
+package source
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"time"
 
-	"github.com/brickKit/be-sdk-go/v3/canon"
+	core "github.com/brickKit/mdm-product/v3/internal/core"
+	products "github.com/brickKit/mdm-product/v3/internal/products"
+	units "github.com/brickKit/mdm-product/v3/internal/units"
+
 	"github.com/brickKit/be-sdk-go/v3/db"
 	"github.com/brickKit/be-sdk-go/v3/errs"
 	"github.com/brickKit/be-sdk-go/v3/events"
-	"github.com/brickKit/be-sdk-go/v3/httpx"
 	productv3 "github.com/brickKit/mdm-product/contract/v3/gen/go/be/mdm/product/v3"
 	"github.com/jackc/pgx/v5"
 )
@@ -23,29 +23,29 @@ type aggregate struct {
 }
 
 var aggregates = map[productv3.Aggregate]aggregate{
-	productv3.Aggregate_AGGREGATE_PRODUCT: {"product", productCols, func(r pgx.Row) (string, int64, any, error) {
-		v, err := scanProduct(r)
+	productv3.Aggregate_AGGREGATE_PRODUCT: {"product", core.ProductCols, func(r pgx.Row) (string, int64, any, error) {
+		v, err := core.ScanProduct(r)
 		return v.ID, v.Version, v, err
 	}},
-	productv3.Aggregate_AGGREGATE_CATEGORY: {"category", categoryCols, func(r pgx.Row) (string, int64, any, error) {
-		v, err := scanCategory(r)
+	productv3.Aggregate_AGGREGATE_CATEGORY: {"category", core.CategoryCols, func(r pgx.Row) (string, int64, any, error) {
+		v, err := core.ScanCategory(r)
 		return v.ID, v.Version, v, err
 	}},
 }
 
-func (m *Module) stamp(ctx context.Context, tx db.Tx) (*productv3.Stamp, error) {
-	st, err := events.ReadStamp(ctx, tx, m.instance, events.Stream{Name: Stream, Partitions: 4})
+func stamp(m *core.Base, ctx context.Context, tx db.Tx) (*productv3.Stamp, error) {
+	st, err := events.ReadStamp(ctx, tx, m.Instance, events.Stream{Name: core.Stream, Partitions: 4})
 	if err != nil {
 		return nil, err
 	}
-	return &productv3.Stamp{Deployment: m.deployment, Instance: st.Instance, Epoch: st.Epoch.String(), Positions: st.Positions}, nil
+	return &productv3.Stamp{Deployment: m.Deployment, Instance: st.Instance, Epoch: st.Epoch.String(), Positions: st.Positions}, nil
 }
 
 // readByID reads the records of one aggregate by ID (only well-formed IDs reach the database).
 func readByID(ctx context.Context, tx db.Tx, a aggregate, idList []string) (map[string]*productv3.Record, error) {
 	var valid []string
 	for _, id := range idList {
-		if uuidForm.MatchString(id) {
+		if core.UUIDForm.MatchString(id) {
 			valid = append(valid, id)
 		}
 	}
@@ -73,28 +73,28 @@ func readByID(ctx context.Context, tx db.Tx, a aggregate, idList []string) (map[
 }
 
 // Snapshot pages through one aggregate by ID, with the stamp of the same snapshot (protocol 02, S3).
-func (m *Module) Snapshot(ctx context.Context, in *productv3.SnapshotRequest) (*productv3.SnapshotResponse, error) {
+func Snapshot(m *core.Base, ctx context.Context, in *productv3.SnapshotRequest) (*productv3.SnapshotResponse, error) {
 	a, ok := aggregates[in.GetAggregate()]
 	if !ok {
-		return nil, invalid("aggregate", "an aggregate of this component")
+		return nil, core.Invalid("aggregate", "an aggregate of this component")
 	}
 	limit := int(in.GetLimit())
 	if limit == 0 {
-		limit = MaxBatch
+		limit = core.MaxBatch
 	}
-	if limit < 0 || limit > MaxBatch {
-		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d records a page", MaxBatch))
+	if limit < 0 || limit > core.MaxBatch {
+		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d records a page", core.MaxBatch))
 	}
 	after := in.GetCursor()
 	if after == "" {
 		after = "00000000-0000-0000-0000-000000000000"
-	} else if !uuidForm.MatchString(after) {
+	} else if !core.UUIDForm.MatchString(after) {
 		return nil, errs.New(errs.ReasonCursorInvalid, "the cursor cannot be read")
 	}
 	out := &productv3.SnapshotResponse{}
-	err := m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+	err := m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
 		var err error
-		if out.Stamp, err = m.stamp(ctx, tx); err != nil {
+		if out.Stamp, err = stamp(m, ctx, tx); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT %s FROM %s AS p WHERE p.id > $1::uuid ORDER BY p.id LIMIT %d`,
@@ -127,19 +127,19 @@ func (m *Module) Snapshot(ctx context.Context, in *productv3.SnapshotRequest) (*
 }
 
 // Read answers by ID in the requested order: exists, or purged (nothing is deleted in this version).
-func (m *Module) Read(ctx context.Context, in *productv3.ReadRequest) (*productv3.ReadResponse, error) {
+func Read(m *core.Base, ctx context.Context, in *productv3.ReadRequest) (*productv3.ReadResponse, error) {
 	a, ok := aggregates[in.GetAggregate()]
 	if !ok {
-		return nil, invalid("aggregate", "an aggregate of this component")
+		return nil, core.Invalid("aggregate", "an aggregate of this component")
 	}
-	if len(in.GetIds()) > MaxBatch {
-		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d IDs a call", MaxBatch))
+	if len(in.GetIds()) > core.MaxBatch {
+		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d IDs a call", core.MaxBatch))
 	}
 	out := &productv3.ReadResponse{}
 	var found map[string]*productv3.Record
-	err := m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+	err := m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
 		var err error
-		if out.Stamp, err = m.stamp(ctx, tx); err != nil {
+		if out.Stamp, err = stamp(m, ctx, tx); err != nil {
 			return err
 		}
 		found, err = readByID(ctx, tx, a, in.GetIds())
@@ -158,75 +158,11 @@ func (m *Module) Read(ctx context.Context, in *productv3.ReadRequest) (*productv
 	return out, nil
 }
 
-// Eligibility is protocol 07's evidence for a new reference to a product.
-type Eligibility struct {
-	Eligible       bool   `json:"eligible"`
-	Reason         string `json:"reason"`
-	ProductVersion int64  `json:"product_version,omitempty"`
-	Stocked        bool   `json:"stocked"`
-	EvaluatedAt    string `json:"evaluated_at"`
-}
-
-func (m *Module) eligibility(ctx context.Context, productID, legalEntity, purpose string) (Eligibility, error) {
-	if purpose != "sell" && purpose != "purchase" {
-		return Eligibility{}, invalid("purpose", "purpose is sell or purchase")
-	}
-	e := Eligibility{EvaluatedAt: canon.Time(time.Now())}
-	if !uuidForm.MatchString(productID) || !uuidForm.MatchString(legalEntity) {
-		e.Reason = "not_found"
-		return e, nil
-	}
-	err := m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
-		p, err := getProduct(ctx, tx, productID, false)
-		if errors.Is(err, errNone) {
-			e.Reason = "not_found"
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		e.ProductVersion, e.Stocked = p.Version, p.Stocked
-		if p.State != "active" {
-			e.Reason = "product_" + p.State
-			return nil
-		}
-		for _, a := range p.Availability {
-			if a.LegalEntityID != legalEntity {
-				continue
-			}
-			switch {
-			case purpose == "sell" && !a.Sellable:
-				e.Reason = "not_sellable"
-			case purpose == "purchase" && !a.Purchasable:
-				e.Reason = "not_purchasable"
-			default:
-				e.Eligible, e.Reason = true, "eligible"
-			}
-			return nil
-		}
-		e.Reason = "not_opened"
-		return nil
-	})
-	return e, err
-}
-
-func (m *Module) eligibilityHTTP(c *httpx.Context) error {
-	ctx, _, err := check(c, OpRead)
-	if err != nil {
-		return err
-	}
-	e, err := m.eligibility(ctx, c.Query("product_id"), c.Query("legal_entity_id"), c.Query("purpose"))
-	if err != nil {
-		return err
-	}
-	return c.JSON(200, e)
-}
-
 var purposes = map[productv3.Purpose]string{productv3.Purpose_PURPOSE_SELL: "sell", productv3.Purpose_PURPOSE_PURCHASE: "purchase"}
 
 // CheckEligibility is ProductService.CheckEligibility (the same answer as GET /api/product/eligibility).
-func (m *Module) CheckEligibility(ctx context.Context, in *productv3.CheckEligibilityRequest) (*productv3.CheckEligibilityResponse, error) {
-	e, err := m.eligibility(ctx, in.GetProductId(), in.GetLegalEntityId(), purposes[in.GetPurpose()])
+func CheckEligibility(m *core.Base, ctx context.Context, in *productv3.CheckEligibilityRequest) (*productv3.CheckEligibilityResponse, error) {
+	e, err := products.EligibilityOf(m, ctx, in.GetProductId(), in.GetLegalEntityId(), purposes[in.GetPurpose()])
 	if err != nil {
 		return nil, err
 	}
@@ -235,12 +171,12 @@ func (m *Module) CheckEligibility(ctx context.Context, in *productv3.CheckEligib
 }
 
 // Resolve answers protocol 07's resolution by ID: current, or not found (no merges or erasure in this version).
-func (m *Module) Resolve(ctx context.Context, in *productv3.ResolveRequest) (*productv3.ResolveResponse, error) {
-	if len(in.GetIds()) > MaxBatch {
-		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d IDs a call", MaxBatch))
+func Resolve(m *core.Base, ctx context.Context, in *productv3.ResolveRequest) (*productv3.ResolveResponse, error) {
+	if len(in.GetIds()) > core.MaxBatch {
+		return nil, errs.New(errs.ReasonBatchTooLarge, fmt.Sprintf("at most %d IDs a call", core.MaxBatch))
 	}
 	var found map[string]*productv3.Record
-	err := m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+	err := m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
 		var err error
 		found, err = readByID(ctx, tx, aggregates[productv3.Aggregate_AGGREGATE_PRODUCT], in.GetIds())
 		return err
@@ -260,8 +196,8 @@ func (m *Module) Resolve(ctx context.Context, in *productv3.ResolveRequest) (*pr
 }
 
 // Convert is ProductService.Convert (the same answer as GET /api/product/products/{id}/convert).
-func (m *Module) Convert(ctx context.Context, in *productv3.ConvertRequest) (*productv3.ConvertResponse, error) {
-	out, err := m.convert(ctx, in.GetProductId(), in.GetQuantity(), in.GetFromUnit(), in.GetToUnit())
+func Convert(m *core.Base, ctx context.Context, in *productv3.ConvertRequest) (*productv3.ConvertResponse, error) {
+	out, err := units.Convert(m, ctx, in.GetProductId(), in.GetQuantity(), in.GetFromUnit(), in.GetToUnit())
 	if err != nil {
 		return nil, err
 	}

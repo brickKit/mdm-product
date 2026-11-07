@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	core "github.com/brickKit/mdm-product/v3/internal/core"
+
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/launcher"
 	"github.com/brickKit/be-sdk-go/v3/mergesafety"
@@ -44,12 +46,12 @@ func TestTheRoutesAreTheOpenAPIDocument(t *testing.T) {
 func TestThePayloadsFitTheirSchemas(t *testing.T) {
 	cat := "01a15ab0-0000-7000-8000-0000000000d1"
 	for typ, v := range map[string]any{
-		ProductChanged: Product{ID: "01a15ab0-0000-7000-8000-0000000000d2", Code: "TEA-GREEN-250G", Kind: "stock", Stocked: true,
+		core.ProductChanged: core.Product{ID: "01a15ab0-0000-7000-8000-0000000000d2", Code: "TEA-GREEN-250G", Kind: "stock", Stocked: true,
 			Name: "Green tea 250 g", Names: map[string]string{"zh-CN": "绿茶 250 克"}, CategoryID: &cat, BaseUnit: "C62",
-			Tracking: "batch", Conversions: []Conversion{{Unit: "BX", Factor: "12"}},
-			Availability: []Availability{{LegalEntityID: "01a15ab0-0000-7000-8000-0000000000a1", Sellable: true}},
+			Tracking: "batch", Conversions: []core.Conversion{{Unit: "BX", Factor: "12"}},
+			Availability: []core.Availability{{LegalEntityID: "01a15ab0-0000-7000-8000-0000000000a1", Sellable: true}},
 			State:        "active", Version: 3, UpdatedAt: "2026-10-20T08:00:00.000000Z"},
-		CategoryChanged: Category{ID: cat, Code: "TEA", Name: "Tea", Names: map[string]string{}, Active: true, Version: 1,
+		core.CategoryChanged: core.Category{ID: cat, Code: "TEA", Name: "Tea", Names: map[string]string{}, Active: true, Version: 1,
 			UpdatedAt: "2026-10-20T08:00:00.000000Z"},
 	} {
 		c := jsonschema.NewCompiler()

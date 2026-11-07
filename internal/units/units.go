@@ -1,10 +1,11 @@
-package product
+package units
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
+
+	core "github.com/brickKit/mdm-product/v3/internal/core"
 
 	"github.com/brickKit/be-sdk-go/v3/db"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
@@ -22,24 +23,24 @@ type Unit struct {
 	Names    map[string]string `json:"names"`
 }
 
-func unitOf(ctx context.Context, tx db.Tx, code string) (Unit, error) {
+func UnitOf(ctx context.Context, tx db.Tx, code string) (Unit, error) {
 	var u Unit
 	var names []byte
 	err := tx.QueryRow(ctx, `SELECT code, category, trim_scale(factor)::text, decimals, name, names FROM unit WHERE code = $1`,
 		code).Scan(&u.Code, &u.Category, &u.Factor, &u.Decimals, &u.Name, &names)
 	if err != nil {
-		return u, invalid("unit", "no unit "+code+" in the catalog")
+		return u, core.Invalid("unit", "no unit "+code+" in the catalog")
 	}
 	return u, json.Unmarshal(names, &u.Names)
 }
 
-func (m *Module) listUnits(c *httpx.Context) error {
-	ctx, _, err := check(c, OpRead)
+func ListUnits(m *core.Base, c *httpx.Context) error {
+	ctx, _, err := core.Check(c, core.OpRead)
 	if err != nil {
 		return err
 	}
 	out := []Unit{}
-	err = m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+	err = m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT code, category, trim_scale(factor)::text, decimals, name, names FROM unit
 			ORDER BY category, factor NULLS LAST, code`)
 		if err != nil {
@@ -68,19 +69,6 @@ func (m *Module) listUnits(c *httpx.Context) error {
 // arith is the context of conversions: far more digits than the factors' 12 decimal places need.
 var arith = apd.BaseContext.WithPrecision(40)
 
-func decimal(s string) (*apd.Decimal, error) { return money.Parse(s) }
-
-// canonical is a decimal's text without trailing zeros (the contract's form).
-func canonical(d *apd.Decimal) string {
-	var r apd.Decimal
-	r.Reduce(d)
-	return r.Text('f')
-}
-
-func sortAvailability(a []Availability) {
-	sort.Slice(a, func(i, j int) bool { return a[i].LegalEntityID < a[j].LegalEntityID })
-}
-
 // Converted is a quantity in another unit.
 type Converted struct {
 	Quantity       string `json:"quantity"`
@@ -89,28 +77,28 @@ type Converted struct {
 	ProductVersion int64  `json:"product_version"`
 }
 
-// convert turns a quantity of the product from one unit into another: through the product's base unit, with the
+// Convert turns a quantity of the product from one unit into another: through the product's base unit, with the
 // product's own conversion first and the catalog's within the base unit's category second (protocol 14: product
 // conversions come before generic ones). The result rounds to the target unit's decimals.
-func (m *Module) convert(ctx context.Context, productID, quantity, from, to string) (Converted, error) {
-	if !uuidForm.MatchString(productID) {
-		return Converted{}, notFound("product")
+func Convert(m *core.Base, ctx context.Context, productID, quantity, from, to string) (Converted, error) {
+	if !core.UUIDForm.MatchString(productID) {
+		return Converted{}, core.NotFound("product")
 	}
-	q, err := decimal(quantity)
+	q, err := core.Decimal(quantity)
 	if err != nil {
-		return Converted{}, invalid("quantity", "quantity is a decimal string")
+		return Converted{}, core.Invalid("quantity", "quantity is a decimal string")
 	}
 	var out Converted
-	err = m.rt.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
-		p, err := getProduct(ctx, tx, productID, false)
+	err = m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+		p, err := core.GetProduct(ctx, tx, productID, false)
 		if err != nil {
 			return err
 		}
-		base, err := unitOf(ctx, tx, p.BaseUnit)
+		base, err := UnitOf(ctx, tx, p.BaseUnit)
 		if err != nil {
 			return err
 		}
-		target, err := unitOf(ctx, tx, to)
+		target, err := UnitOf(ctx, tx, to)
 		if err != nil {
 			return err
 		}
@@ -126,17 +114,17 @@ func (m *Module) convert(ctx context.Context, productID, quantity, from, to stri
 			}
 			if f, ok := own[code]; ok {
 				source = "product"
-				return decimal(f)
+				return core.Decimal(f)
 			}
-			u, err := unitOf(ctx, tx, code)
+			u, err := UnitOf(ctx, tx, code)
 			if err != nil {
 				return nil, err
 			}
 			if u.Category != base.Category || u.Factor == nil || base.Factor == nil {
-				return nil, errUnit.New("no conversion from " + code + " to " + p.BaseUnit + " for " + p.Code)
+				return nil, core.ErrUnit.New("no conversion from " + code + " to " + p.BaseUnit + " for " + p.Code)
 			}
-			uf, _ := decimal(*u.Factor)
-			bf, _ := decimal(*base.Factor)
+			uf, _ := core.Decimal(*u.Factor)
+			bf, _ := core.Decimal(*base.Factor)
 			var r apd.Decimal
 			_, err = arith.Quo(&r, uf, bf)
 			return &r, err
@@ -158,21 +146,21 @@ func (m *Module) convert(ctx context.Context, productID, quantity, from, to stri
 		}
 		rounded := money.Round(&result, int32(target.Decimals), money.HalfAwayFromZero)
 		shown := money.Round(&factor, 12, money.HalfAwayFromZero)
-		out = Converted{Quantity: rounded.Text('f'), Factor: canonical(shown), Source: source, ProductVersion: p.Version}
+		out = Converted{Quantity: rounded.Text('f'), Factor: core.Canonical(shown), Source: source, ProductVersion: p.Version}
 		return nil
 	})
-	if errors.Is(err, errNone) {
-		return out, notFound("product")
+	if errors.Is(err, core.ErrNone) {
+		return out, core.NotFound("product")
 	}
 	return out, err
 }
 
-func (m *Module) convertHTTP(c *httpx.Context) error {
-	ctx, _, err := check(c, OpRead)
+func ConvertHTTP(m *core.Base, c *httpx.Context) error {
+	ctx, _, err := core.Check(c, core.OpRead)
 	if err != nil {
 		return err
 	}
-	out, err := m.convert(ctx, c.Param("id"), c.Query("quantity"), c.Query("from_unit"), c.Query("to_unit"))
+	out, err := Convert(m, ctx, c.Param("id"), c.Query("quantity"), c.Query("from_unit"), c.Query("to_unit"))
 	if err != nil {
 		return err
 	}
