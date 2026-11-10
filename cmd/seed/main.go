@@ -7,7 +7,8 @@
 //   - 146 products, enough to page through as a whole and within the larger categories: stock items with one, two or
 //     three packaging levels (piece, pack, box; kilogram) and batch or serial tracking, services by the hour or the
 //     day, non-stock items;
-//   - availability in every usable legal entity: all opened in CN01, in ES01 and US01 some sellable and purchasable,
+//   - availability in every usable legal entity: all opened in CN01 (goods sellable and purchasable, services sellable,
+//     four of them purchasable too: 设备保养, 物流配送, 设备年度维保, 陈列设计 (3.0.38)), in ES01 and US01 some sellable and purchasable,
 //     some only purchasable, some not opened at all; ten opened in HK01 while it was active (the seed resumes HK01,
 //     opens them and suspends it again, only while they are missing);
 //   - the negative data the eligibility answers need: a suspended and a retired product, products not sellable or not
@@ -226,6 +227,8 @@ func main() {
 			opened[it.code][a.(map[string]any)["legal_entity_id"].(string)] = true
 		}
 	}
+	// the services bought as well as sold: maintenance, logistics, display design (erp/purchase's acceptances)
+	bought := map[string]bool{"SVC-01": true, "SVC-04": true, "SVC-07": true, "SVC-10": true}
 	n := 0
 	open := func(code, le string, sell, buy bool) {
 		n++
@@ -235,7 +238,7 @@ func main() {
 		c.must("PUT", "/api/product/products/"+ids[code]+"/legal-entities/"+les[le], map[string]any{"sellable": sell, "purchasable": buy})
 	}
 	for i, it := range all {
-		buy := it.kind != "service"
+		buy := it.kind != "service" || bought[it.code] // services the company buys from suppliers (3.0.38)
 		open(it.code, "CN01", true, buy)
 		switch i % 5 {
 		case 0: // not opened in ES01 at all (not_opened)
