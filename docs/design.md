@@ -75,6 +75,8 @@
 
 ## 实现状态
 
+3.0.39：{version}：be-sdk-go alpha.122（全系统同一个 SDK 版本；SDK 加了流程内核，线协议第 17 章，装配项目阶段计划 C7 的 P3）；行为不变。
+
 3.0.38（阶段计划 C2 的 P5）：种子让四个服务（设备保养、物流配送、设备年度维保、陈列设计）在开通它们的法人里也可采购，采购（erp/purchase）的服务验收要它们；行为不变。
 
 3.0.37：be-sdk-go alpha.121（全系统同一个 SDK 版本；sectest 的授权组件替身答 CheckLinkChange 与 Administrators）
